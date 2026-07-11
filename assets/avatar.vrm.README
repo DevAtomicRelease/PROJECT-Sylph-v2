@@ -1,0 +1,3 @@
+# Avatar VRM File
+# Place the finalized VRM 1.0 avatar file here as `avatar.vrm`
+# Required by Phase 1.4 (three.js + @pixiv/three-vrm loader)

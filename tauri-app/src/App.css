@@ -1,0 +1,52 @@
+/*
+ * App.css — Root styles for Sylph desktop overlay
+ *
+ * Key requirements:
+ * - Fully transparent background (desktop visible behind avatar)
+ * - No scrollbars, no overflow
+ * - Fill the entire window
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+/* Reset and transparent base */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app-root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: transparent;
+}
+
+/* Canvas takes up the entire window */
+#avatar-canvas canvas {
+  display: block;
+}
+
+/* Prevent text selection across the overlay */
+.app-root {
+  user-select: none;
+  -webkit-user-select: none;
+}

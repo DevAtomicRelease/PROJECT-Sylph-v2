@@ -1,0 +1,7 @@
+# Animations Directory
+# Place retargeted Mixamo FBX/GLB animation clips here.
+# Required animations (Phase 1.5):
+#   - idle_breathe.glb
+#   - blink.glb
+#   - weight_shift.glb
+#   - head_look.glb

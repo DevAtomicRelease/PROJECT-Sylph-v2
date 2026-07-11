@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "sylph-sidecar"
+version = "0.1.0"
+description = "Sylph Brain Sidecar — FastAPI service for LLM orchestration, STT, TTS, memory, and screen analysis"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+
+[tool.setuptools.packages.find]
+where = ["."]

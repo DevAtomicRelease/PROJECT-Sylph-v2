@@ -1,0 +1,8 @@
+# Pre-cached Filler Audio Clips
+# Place short audio clips here for latency masking (Phase 10.3):
+#   - hmm.wav
+#   - thinking.wav
+#   - let_me_think.wav
+#   - one_sec.wav
+#   - gentle_hum.wav
+#   - sigh.wav

@@ -1,0 +1,126 @@
+/* DebugPanel.css — Glassmorphic debug overlay */
+
+.debug-panel {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  width: 360px;
+  max-height: 300px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #e0e0e0;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 11px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.debug-title {
+  font-weight: 700;
+  font-size: 12px;
+  color: #80cbc4;
+}
+
+.debug-close {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.debug-close:hover {
+  color: #fff;
+}
+
+.debug-status-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.debug-status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.debug-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.debug-messages {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.debug-message {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.debug-time {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.debug-type {
+  color: #80cbc4;
+  flex-shrink: 0;
+}
+
+.debug-text {
+  color: #ccc;
+}
+
+.debug-clear {
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #999;
+  font-size: 10px;
+  cursor: pointer;
+  align-self: flex-end;
+}
+
+.debug-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+/* Scrollbar */
+.debug-messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+.debug-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}

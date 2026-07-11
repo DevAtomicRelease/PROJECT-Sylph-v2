@@ -1,0 +1,41 @@
+# Project Sylph — Python Brain Sidecar Dependencies
+# Phase 0.4: Install with `pip install -r requirements.txt`
+# Target: Python 3.12, CPU-only inference (GPU reserved for Qwen3.5-9B via Ollama)
+
+# --- Core Server ---
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+uvloop==0.21.*; sys_platform != "win32"
+websockets==13.*
+
+# --- Speech-to-Text (CPU) ---
+faster-whisper==1.1.*
+silero-vad==5.*
+
+# --- Text-to-Speech (CPU) ---
+kokoro>=0.9
+misaki[en]
+onnxruntime>=1.19
+
+# --- LLM Orchestration ---
+langgraph>=0.3
+langgraph-checkpoint-sqlite>=3.0
+langchain-core>=0.3
+
+# --- Memory ---
+chromadb==0.5.*
+# sqlcipher3-binary has no Windows wheels. For dev, use plain sqlite.
+# For production encryption, install pysqlcipher3 from source on Linux/macOS.
+# pysqlcipher3>=1.2; sys_platform != "win32"
+
+# --- Numeric / Audio ---
+numpy
+soundfile
+torch>=2.2
+
+# --- Vision (Phase 7) ---
+Pillow>=10.0
+rapidocr-onnxruntime>=1.3
+
+# --- HTTP Client ---
+httpx>=0.27

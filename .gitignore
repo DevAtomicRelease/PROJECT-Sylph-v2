@@ -1,0 +1,52 @@
+# Project Sylph — Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Model weights (too large for git)
+models/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / Tauri
+tauri-app/node_modules/
+tauri-app/dist/
+tauri-app/src-tauri/target/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.agents/
+
+# Sylph runtime data
+.sylph/
+
+# Logs
+*.log
+sidecar.log
+
+# Docs not for repo (internal planning)
+AIDEN_Final_Tech_Stack_v3.md
+AIDEN_Implementation_Plan.md
+OPTIMIZATION_REPORT.md
+
+# Misc
+unique_phonemes.txt
