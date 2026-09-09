@@ -293,6 +293,10 @@ class ScreenAnalyzer:
                 temperature=0.7,
             )
             reaction = response.strip().strip('"').strip("'")
+            # The client soft-fails with a bracketed error string when the
+            # cloud is unreachable/capped — never speak that as a "reaction".
+            if not reaction or reaction.startswith("[Error"):
+                raise RuntimeError(reaction or "empty LLM reaction")
             logger.info("LLM reaction: '%s'", reaction[:80])
             return reaction
         except Exception as e:

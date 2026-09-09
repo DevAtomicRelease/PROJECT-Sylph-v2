@@ -47,8 +47,18 @@ const ALL_EXPRESSIONS = [
   "neutral",
 ];
 
-/** Blend time in seconds — snappy enough to feel reactive */
-const BLEND_DURATION = 0.15;
+/**
+ * Asymmetric transition model. Rising expressions use a slightly
+ * underdamped spring (fast onset, ~5% overshoot, visible "arrival");
+ * falling expressions release on a longer exponential — real faces let go
+ * of expressions slower than they form them. The old single 0.15 s lerp
+ * made both directions identical, which read as a mechanical crossfade.
+ */
+const ATTACK_TAU = 0.09;      // rise time constant (settles ≈0.25 s)
+const ATTACK_ZETA = 0.78;     // <1 ⇒ slight overshoot on onset
+const RELEASE_TAU = 0.28;     // fall time constant (lingers ≈0.7 s)
+/** Max integration step for the onset spring — guards against dt spikes. */
+const MAX_SPRING_DT = 0.05;
 
 /** Seconds an expression holds at full strength before decaying */
 const EXPRESSION_HOLD_SECONDS = 6.0;
@@ -91,6 +101,8 @@ export class ExpressionDriver {
   private vrm: VRM;
   private currentWeights: Map<string, number> = new Map();
   private targetWeights: Map<string, number> = new Map();
+  /** Per-channel velocity for the rising-edge spring. */
+  private weightVelocity: Map<string, number> = new Map();
   private activeFlash: Flash | null = null;
   private flashWeights: Map<string, number> = new Map();
 
@@ -166,14 +178,31 @@ export class ExpressionDriver {
       this.targetWeights.set(name, t * decayScale * drift);
     }
 
-    // Lerp current weights toward targets
-    const lerpFactor = Math.min(deltaTime / BLEND_DURATION, 1.0);
-
+    // Advance each channel toward its target: spring on the way up,
+    // exponential release on the way down.
     for (const name of ALL_EXPRESSIONS) {
       const current = this.currentWeights.get(name) ?? 0;
       const target = this.targetWeights.get(name) ?? 0;
-      const blended = THREE.MathUtils.lerp(current, target, lerpFactor);
-      this.currentWeights.set(name, blended);
+      let velocity = this.weightVelocity.get(name) ?? 0;
+      let next: number;
+
+      if (target > current + 0.001) {
+        // Rising edge: underdamped spring-damper
+        const h = Math.min(deltaTime, MAX_SPRING_DT);
+        const omega = 2 / ATTACK_TAU;
+        const accel =
+          omega * omega * (target - current) - 2 * ATTACK_ZETA * omega * velocity;
+        velocity += accel * h;
+        next = current + velocity * h;
+      } else {
+        // Falling edge (or settled): smooth release, kill spring momentum
+        const k = 1 - Math.exp(-deltaTime / RELEASE_TAU);
+        next = THREE.MathUtils.lerp(current, target, k);
+        velocity = 0;
+      }
+
+      this.weightVelocity.set(name, velocity);
+      this.currentWeights.set(name, THREE.MathUtils.clamp(next, 0, 1));
     }
 
     // Handle active flash — overrides base mood weights temporarily

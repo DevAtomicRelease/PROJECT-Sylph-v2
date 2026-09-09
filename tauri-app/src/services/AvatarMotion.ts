@@ -12,6 +12,7 @@
 
 import { getCurrentWindow, PhysicalPosition, currentMonitor } from "@tauri-apps/api/window";
 import { gsap } from "gsap";
+import { motionBus } from "../animation/MotionBus";
 
 type NamedPosition =
   | "left"
@@ -78,18 +79,30 @@ class AvatarMotion {
     // Tween a proxy object; apply integer positions per frame.
     this.activeTween?.kill();
     const proxy = { x: cur.x, y: cur.y };
+    let lastX = cur.x;
+    let lastY = cur.y;
+    let lastT = performance.now();
     this.activeTween = gsap.to(proxy, {
       x: target.x,
       y: target.y,
       duration: MOVE_DURATION,
       ease: "power3.inOut",
       onUpdate: () => {
+        // Publish glide velocity so the render loop can lean the body into
+        // the motion and let the spring bones (hair/skirt) trail the ride.
+        const now = performance.now();
+        const dt = Math.max((now - lastT) / 1000, 1e-3);
+        motionBus.setWindowVelocity((proxy.x - lastX) / dt, (proxy.y - lastY) / dt);
+        lastX = proxy.x;
+        lastY = proxy.y;
+        lastT = now;
         win
           .setPosition(new PhysicalPosition(Math.round(proxy.x), Math.round(proxy.y)))
           .catch(() => {});
       },
       onComplete: () => {
         this.activeTween = null;
+        motionBus.setWindowVelocity(0, 0);
       },
     });
   }

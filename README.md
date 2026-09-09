@@ -5,14 +5,16 @@ A local-first AI desktop companion with a VRM 3D avatar, voice interaction, scre
 ## ✨ Features
 
 - **3D Avatar Overlay** — VRM avatar rendered with three.js, always on-screen above the taskbar
-- **Voice Interaction** — Push-to-talk with real-time STT (faster-whisper) and TTS (Kokoro)
-- **Phoneme Lip-Sync** — Viseme-driven mouth animations synced to speech output
+- **Voice Interaction** — Push-to-talk with real-time STT (faster-whisper) and emotional TTS (Zonos)
+- **Emotional Voice** — Zonos emotion vector (happiness/sadness/anger/fear/surprise/…) driven by the mood engine and per-clause tone inference; Kokoro kept as automatic fallback
+- **Phoneme Lip-Sync** — Viseme-driven mouth animations synced to speech output (misaki G2P)
+- **Living Body** — Spring-bone physics (hair/skirt/bust), mood-tied gestures (happy bounce, slump, shy turn-away, hum sway), speech gesticulation, idle fidgets
 - **Screen Awareness** — Captures and OCR-reads your screen on demand via `look_at_screen` tool
 - **Persistent Memory** — Short-term (SQLite) + long-term (JSON) memory with automatic sync
-- **Personality Engine** — Mood state machine, autonomous behaviors (glances, fidgets, mumbles)
+- **Personality Engine** — Mood state machine, autonomous behaviors (glances, fidgets, mumbles) — all LLM-free
 - **Tool Calling** — Email, calendar, file search, web search via Ollama tool-use
 - **Barge-In Support** — Interrupt Sylph mid-sentence; she stops and listens
-- **Fully Local** — Qwen3.5-9B via Ollama, no cloud APIs, $0 cost
+- **$0 Stack** — LLM on Ollama Cloud's free tier (`gemma4:cloud`, multimodal); STT + TTS + memory fully local. The local GPU is dedicated to voice, not the LLM.
 
 ## 🏗 Architecture
 
@@ -58,11 +60,11 @@ project-sylph/
 
 ### Prerequisites
 
-- **Python 3.11+** with a virtual environment
+- **Python 3.12** with a virtual environment
 - **Node.js 18+** and npm
 - **Rust** (via rustup)
-- **Ollama** running locally with `qwen3.5:9b` pulled
-- **CUDA 12** (optional, for GPU-accelerated STT)
+- **Ollama** installed and signed in (`ollama signin`) — the daemon proxies the free-tier cloud model
+- **CUDA 12** GPU (RTX 4060-class) — used by Zonos TTS and faster-whisper
 
 ### Setup
 
@@ -71,17 +73,21 @@ project-sylph/
 git clone https://github.com/DevAtomicRelease/PROJECT-Sylph.git
 cd PROJECT-Sylph
 
-# 2. Python sidecar
+# 2. Python sidecar (CUDA torch FIRST, then requirements, then Zonos editable)
 python -m venv venv
 venv\Scripts\activate        # Windows
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
 pip install -r sidecar/requirements.txt
+git clone --depth 1 https://github.com/Zyphra/Zonos.git vendor/Zonos
+pip install -e vendor/Zonos --no-deps
 
 # 3. Frontend
 cd tauri-app
 npm install
 
-# 4. Pull the LLM model
-ollama pull qwen3.5:9b
+# 4. Cloud LLM (free tier, proxied through the signed-in daemon)
+ollama signin
+ollama pull gemma4:cloud     # manifest-only stub, no local weights
 
 # 5. Run
 npm run tauri dev
@@ -89,13 +95,17 @@ npm run tauri dev
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+`.env` at the repo root (loaded by the sidecar at startup):
 
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-STT_MODEL=distil-large-v3
-TTS_VOICE=af_bella
+MODEL_TAG=gemma4:cloud                     # free-tier multimodal cloud model
+OLLAMA_BASE_URL=http://127.0.0.1:11434     # signed-in daemon proxies to cloud
+TTS_ENGINE=zonos                           # zonos | kokoro
+ZONOS_MODEL=Zyphra/Zonos-v0.1-transformer
 ```
+
+See the comments in `.env` for the direct-API alternative (`https://ollama.com`
++ `OLLAMA_API_KEY`) and for reverting to a fully local LLM.
 
 ## 🎮 Usage
 

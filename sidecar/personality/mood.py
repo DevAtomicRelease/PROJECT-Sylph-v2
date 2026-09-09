@@ -99,6 +99,15 @@ class MoodStateMachine:
         """Return the TTS speed multiplier for the current expression."""
         return MOOD_TO_TTS_SPEED.get(self.expression_label, 1.0)
 
+    @property
+    def expression_intensity(self) -> float:
+        """
+        How strongly the dominant mood is held (0-1). Drives how far the
+        Zonos emotion vector departs from neutral: a barely-dominant mood
+        colors the voice subtly, a saturated one is unmistakable.
+        """
+        return _clamp(self.values.get(self.dominant_mood, 0.5))
+
     def on_user_interaction(self) -> None:
         """Call when the user speaks or interacts."""
         self._last_interaction = time.time()

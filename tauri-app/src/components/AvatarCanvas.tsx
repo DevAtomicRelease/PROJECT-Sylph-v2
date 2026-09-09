@@ -17,8 +17,10 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRM, VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { ExpressionDriver } from "../animation/ExpressionDriver";
 import { IdleAnimationController } from "../animation/IdleAnimationController";
+import { GestureController } from "../animation/GestureController";
 import { VisemeScheduler } from "../services/VisemeScheduler";
 import { sidecarSocket } from "../services/SidecarSocket";
+import { audioPlayer } from "../services/AudioPlayer";
 
 interface AvatarCanvasProps {
   vrmUrl: string;
@@ -34,6 +36,7 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
   const frameIdRef = useRef<number>(0);
   const expressionDriverRef = useRef<ExpressionDriver | null>(null);
   const idleControllerRef = useRef<IdleAnimationController | null>(null);
+  const gestureControllerRef = useRef<GestureController | null>(null);
   const visemeSchedulerRef = useRef<VisemeScheduler | null>(null);
 
   const setupScene = useCallback(() => {
@@ -106,9 +109,11 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
               return;
             }
 
-            // Optimize draw calls
-            VRMUtils.removeUnnecessaryJoints(gltf.scene);
+            // Optimize draw calls. combineSkeletons replaces the deprecated
+            // removeUnnecessaryJoints (three-vrm v3) — same goal, and it
+            // leaves the spring-bone joint hierarchy untouched.
             VRMUtils.removeUnnecessaryVertices(gltf.scene);
+            VRMUtils.combineSkeletons(gltf.scene);
 
             // Rotate VRM to face camera (VRM convention: +Z forward)
             VRMUtils.rotateVRM0(vrm);
@@ -121,9 +126,21 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
 
             const expressions = vrm.expressionManager?.expressions.map((e) => e.expressionName) || [];
             console.log("[AvatarCanvas] VRM loaded successfully. Expressions:", expressions);
+
+            // Verify spring-bone physics is actually live, not just present
+            // in the file: count the joints the manager will simulate.
+            const springJoints = vrm.springBoneManager?.joints.size ?? 0;
+            const springColliders = vrm.springBoneManager?.colliderGroups.length ?? 0;
+            if (springJoints === 0) {
+              console.warn("[AvatarCanvas] No spring-bone joints active — secondary motion (hair/skirt/bust) will be dead!");
+            } else {
+              console.log(`[AvatarCanvas] SpringBone physics active: ${springJoints} joints, ${springColliders} collider groups`);
+            }
+            // Inspectable from devtools / automated checks
+            (window as any).__sylphSpringBones = { joints: springJoints, colliderGroups: springColliders };
             sidecarSocket.send("log", {
-              level: "info",
-              message: `[AvatarCanvas] VRM loaded. Expressions: ${expressions.join(", ")}`
+              level: springJoints === 0 ? "warn" : "info",
+              message: `[AvatarCanvas] VRM loaded. Expressions: ${expressions.join(", ")}; springBoneJoints=${springJoints}`
             });
 
             resolve(vrm);
@@ -157,6 +174,9 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
         // Initialize idle animations (Phase 1.5)
         idleControllerRef.current = new IdleAnimationController(vrm);
 
+        // Initialize gesture layer (mood/speech-tied body movement)
+        gestureControllerRef.current = new GestureController(vrm);
+
         // Initialize viseme scheduler (Phase 4.6)
         visemeSchedulerRef.current = new VisemeScheduler();
         visemeSchedulerRef.current.setVRM(vrm);
@@ -177,13 +197,18 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
           // 1. Set bone rotations (rest pose, breathing, head look)
           idleControllerRef.current?.update(delta);
 
-          // 2. Set mood expression weights
+          // 2. Additive gesture layer (mood/speech body movement) — after
+          //    idle so its offsets compose onto rest pose + breathing
+          gestureControllerRef.current?.setTalking(audioPlayer.playing);
+          gestureControllerRef.current?.update(delta);
+
+          // 3. Set mood expression weights
           expressionDriverRef.current?.update(delta);
 
-          // 3. Set viseme lip-sync weights
+          // 4. Set viseme lip-sync weights
           visemeSchedulerRef.current?.update(delta);
 
-          // 4. Propagate all changes to the mesh
+          // 5. Propagate all changes to the mesh (incl. spring-bone physics)
           vrm.update(delta);
 
           renderer.render(scene, camera);
@@ -225,10 +250,13 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
     });
 
     // Engage user with eye contact when speaking starts + flash a subtle happy/alive expression
-    const unsubTTSStart = sidecarSocket.onMessage("tts_start", () => {
+    const unsubTTSStart = sidecarSocket.onMessage("tts_start", (payload) => {
       idleControllerRef.current?.setGlanceTarget(0.0, 0.04, 1.2);
       // Micro-expression: brief happy burst when starting to speak
       expressionDriverRef.current?.flash({ happy: 0.35, relaxed: 0.2 }, 0.35, 0.55);
+      // Body gesture cued by the utterance itself (hum/sigh/yawn stage
+      // directions get dedicated motion; everything else a subtle lead-in)
+      gestureControllerRef.current?.onSpeechStart((payload.text as string) ?? "");
     });
 
     // Handle resize
@@ -250,6 +278,7 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
       unsubPosture();
       unsubThinking();
       unsubTTSStart();
+      gestureControllerRef.current?.dispose();
       idleControllerRef.current?.dispose();
       renderer.forceContextLoss();
       renderer.dispose();

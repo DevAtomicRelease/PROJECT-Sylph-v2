@@ -10,6 +10,8 @@ Complete pipeline:
 Run: python sidecar/main.py
 """
 
+import env_config  # noqa: F401  — loads repo-root .env BEFORE other imports read os.environ
+
 import asyncio
 import time
 import json
@@ -27,13 +29,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from stt.vad import VoiceActivityDetector
 from stt.transcriber import Transcriber
-from tts.synthesizer import Synthesizer
+from tts import create_synthesizer
 from tts.duration_estimator import estimate_durations
 from tts.viseme_builder import build_viseme_timeline, timeline_to_compact
 from tts.payload import build_dual_payload
-from tts.audio_post import apply_emotion_fx
 from llm.ollama_client import OllamaClient
-from llm.planner import ConversationPlanner
+from llm.planner import ConversationPlanner, infer_emotion
 from memory.short_term import ShortTermMemory
 from memory.long_term import LongTermMemory
 from memory.sync_worker import MemorySyncWorker
@@ -74,8 +75,17 @@ logger.info("Logging initialized: Console + file at %s", log_file_path)
 
 vad = VoiceActivityDetector()
 transcriber = Transcriber()
-synthesizer = Synthesizer()
+synthesizer = create_synthesizer()  # engine per TTS_ENGINE (.env)
 ollama = OllamaClient()
+
+# When the live engine is NOT Zonos (RTF on this GPU rules it out for live
+# replies), the fixed personality lines still get real Zonos emotion via a
+# lazy background-rendered disk cache. No-op when Zonos is the live engine.
+speech_cache = None
+if getattr(synthesizer, "engine", "kokoro") == "kokoro" and \
+        os.environ.get("SPEECH_CACHE", "on").lower() != "off":
+    from tts.speech_cache import EmotionalSpeechCache
+    speech_cache = EmotionalSpeechCache()
 short_term = ShortTermMemory()
 long_term = LongTermMemory()
 sync_worker: Optional[MemorySyncWorker] = None
@@ -198,32 +208,54 @@ manager = ConnectionManager()
 # TTS Helper — sends synthesized speech to all clients
 # ---------------------------------------------------------------------------
 
-# Maps VRM expression label → TTS speed multiplier for emotional voice variation
-_EMOTION_SPEED_MAP: dict[str, float] = {
-    "happy":     1.08,
-    "angry":     1.12,
-    "sad":       0.88,
-    "relaxed":   0.95,
-    "surprised": 1.10,
-    "neutral":   1.00,
-    "shy":       0.92,
-    "bored":     0.90,
-}
+async def _emit_tts_chunk(audio, phonemes: str, sample_rate: int, turn: int) -> None:
+    """Viseme timeline + dual payload + broadcast for one audio segment."""
+    durations = estimate_durations(phonemes, len(audio), sample_rate)
+    timeline = build_viseme_timeline(durations)
+    compact = timeline_to_compact(timeline)
+    dual = build_dual_payload(
+        audio, compact,
+        sample_rate=sample_rate,
+        is_final=False,
+        turn_id=turn,
+    )
+    await manager.broadcast_bytes(dual)
+
 
 async def send_tts_to_clients(text: str, speed: Optional[float] = None) -> None:
     """
     Synthesize text and broadcast dual payloads to all WebSocket clients.
 
+    Emotion resolution (no LLM involved):
+    1. Scan THIS clause for emotional keywords — if the sentence being spoken
+       carries a tone, the voice carries it too, in the same breath.
+    2. Otherwise fall back to the mood machine's current expression, scaled
+       by how strongly that mood is held.
+    The label + intensity feed Zonos' native emotion vector (or, on the
+    Kokoro fallback, its legacy speed/pitch approximation).
+
     Args:
         text: Text to synthesize.
-        speed: Optional TTS speed override. If None, uses the current mood-mapped speed.
+        speed: Optional user speed preference (multiplies the emotion-driven
+               base rate). If None, uses the global settings speed.
     """
     try:
-        # Resolve speed from mood if not explicitly provided
         if speed is None:
-            current_expression = mood_machine.expression_label
-            speed = _EMOTION_SPEED_MAP.get(current_expression, 1.0)
-            logger.debug("TTS speed for expression '%s': %.2f", current_expression, speed)
+            speed = _global_speed
+
+        clause_emotion = infer_emotion(text)
+        if clause_emotion != "neutral":
+            emotion_label = clause_emotion
+            # Text told us the tone outright — speak it with conviction.
+            emotion_intensity = 0.85
+        else:
+            emotion_label = mood_machine.expression_label
+            emotion_intensity = mood_machine.expression_intensity
+        logger.debug(
+            "TTS emotion: '%s' (intensity %.2f, source=%s)",
+            emotion_label, emotion_intensity,
+            "clause" if clause_emotion != "neutral" else "mood",
+        )
 
         # Capture the turn this utterance belongs to. If a new turn begins
         # (user interrupts) while we are still synthesizing, we stop emitting.
@@ -231,32 +263,37 @@ async def send_tts_to_clients(text: str, speed: Optional[float] = None) -> None:
 
         # Broadcast tts_start BEFORE synthesis so frontend mutes mic immediately
         # and shows the 'speaking' indicator without waiting for audio generation.
-        await manager.broadcast_json("tts_start", {"text": text[:80], "turn_id": turn})
+        await manager.broadcast_json("tts_start", {
+            "text": text[:80],
+            "turn_id": turn,
+            "emotion": emotion_label,
+        })
 
-        i = 0
-        async for chunk in synthesizer.synthesize_stream(text, speed=speed):
-            if turn != current_turn_id():
-                logger.info("TTS aborted mid-stream: turn %d superseded by %d", turn, current_turn_id())
-                return
-            audio = chunk["audio"]
-            phonemes = chunk["phonemes"]
-
-            # Emotional audio post-processing (Item 5) — pitch shift + rate
-            current_expression = mood_machine.expression_label
-            audio = apply_emotion_fx(audio, current_expression, synthesizer.sample_rate)
-
-            durations = estimate_durations(phonemes, len(audio), synthesizer.sample_rate)
-            timeline = build_viseme_timeline(durations)
-            compact = timeline_to_compact(timeline)
-            dual = build_dual_payload(
-                audio, compact,
-                sample_rate=synthesizer.sample_rate,
-                is_final=False,
-                turn_id=turn,
-            )
-            await manager.broadcast_bytes(dual)
-            i += 1
-            logger.info("TTS chunk %d: '%s' → %d samples (turn %d)", i, chunk["graphemes"][:30], len(audio), turn)
+        # Cached emotional take? (Zonos-voiced mumbles rendered in the
+        # background — full emotion vector, zero synthesis latency.)
+        cached_segments = speech_cache.get(text, emotion_label) if speech_cache else None
+        if cached_segments is not None:
+            logger.info("TTS cache hit: '%s' [%s] — playing Zonos take", text[:40], emotion_label)
+            for seg in cached_segments:
+                if turn != current_turn_id():
+                    return
+                await _emit_tts_chunk(seg["audio"], seg["phonemes"], seg["sample_rate"], turn)
+        else:
+            if speech_cache:
+                speech_cache.maybe_enqueue(text, emotion_label, emotion_intensity)
+            i = 0
+            async for chunk in synthesizer.synthesize_stream(
+                text, speed=speed,
+                emotion_label=emotion_label, emotion_intensity=emotion_intensity,
+            ):
+                if turn != current_turn_id():
+                    logger.info("TTS aborted mid-stream: turn %d superseded by %d", turn, current_turn_id())
+                    return
+                await _emit_tts_chunk(
+                    chunk["audio"], chunk["phonemes"], synthesizer.sample_rate, turn,
+                )
+                i += 1
+                logger.info("TTS chunk %d: '%s' → %d samples (turn %d)", i, chunk["graphemes"][:30], len(chunk["audio"]), turn)
 
         # Notify the interrupt gate that speech was successfully delivered
         interrupt_gate.on_speech_delivered()
@@ -269,10 +306,24 @@ async def send_tts_to_clients(text: str, speed: Optional[float] = None) -> None:
 # ---------------------------------------------------------------------------
 
 async def retrieve_memories(query: str) -> list[str]:
-    """Retrieve relevant facts from long-term memory."""
+    """Retrieve relevant facts from long-term memory.
+
+    Runs the Chroma query in an executor: embedding is CPU work (and on a
+    fresh install Chroma synchronously downloads its ONNX model first) — on
+    the event loop it would freeze every WebSocket during that time.
+    """
     try:
-        results = long_term.retrieve_relevant(query, top_k=6, min_similarity=0.65)
+        loop = asyncio.get_running_loop()
+        results = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: long_term.retrieve_relevant(query, top_k=6, min_similarity=0.65)
+            ),
+            timeout=8.0,
+        )
         return [r["text"] for r in results]
+    except asyncio.TimeoutError:
+        logger.warning("Memory retrieval timed out — continuing without memories")
+        return []
     except Exception as e:
         logger.warning("Memory retrieval error: %s", e)
         return []
@@ -918,7 +969,11 @@ async def handle_speak_request(ws: WebSocket, payload: dict) -> None:
         assistant_state = "speaking"
         await manager.send_json(ws, "tts_start", {"text": text})
 
-        results = await synthesizer.synthesize(text, speed=speed)
+        results = await synthesizer.synthesize(
+            text, speed=speed,
+            emotion_label=mood_machine.expression_label,
+            emotion_intensity=mood_machine.expression_intensity,
+        )
         for i, chunk in enumerate(results):
             audio = chunk["audio"]
             phonemes = chunk["phonemes"]
@@ -1064,22 +1119,19 @@ async def handle_vision_request(ws: WebSocket, payload: dict) -> None:
         return
 
     try:
-        # Send image + question to Ollama via the planner
-        if planner:
-            response = await planner.process_user_message(
-                user_text, screen_context=f"[User asked about their screen]"
-            )
-            # Also send as vision request to Ollama directly with the image
-            vision_response = await ollama.chat(
-                messages=[{"role": "user", "content": user_text}],
-                images=[base64_jpeg],
-            )
-            await manager.send_json(ws, "vision_response", {
-                "question": user_text,
-                "response": vision_response,
-            })
-            # Also speak it
-            await send_tts_to_clients(vision_response)
+        # One multimodal call with the actual image. (This used to ALSO run
+        # the full planner on the same text — two cloud calls per request for
+        # one answer. On a GPU-time-capped free tier that's a pure quota leak.)
+        vision_response = await ollama.chat(
+            messages=[{"role": "user", "content": user_text}],
+            images=[base64_jpeg],
+        )
+        await manager.send_json(ws, "vision_response", {
+            "question": user_text,
+            "response": vision_response,
+        })
+        # Also speak it
+        await send_tts_to_clients(vision_response)
     except asyncio.CancelledError:
         logger.info("Vision request task was cancelled.")
         raise

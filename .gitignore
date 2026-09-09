@@ -36,8 +36,27 @@ desktop.ini
 *.swo
 .agents/
 
+# Vendored third-party source (Zonos editable install)
+vendor/
+
 # Sylph runtime data
 .sylph/
+
+# Google OAuth secrets (never commit)
+credentials.json
+token.json
+
+# Editor / assistant tooling
+.claude/
+
+# Vite dev cache
+tauri-app/.vite/
+
+# Codex scratch + generated presentation artifacts (not source)
+.codex_tmp_sylph_deck/
+Project_SYLPH_Future_Vision/
+Project_SYLPH_Future_Vision.pptx
+Project_SYLPH_Future_Vision.pptx.inspect.ndjson
 
 # Logs
 *.log

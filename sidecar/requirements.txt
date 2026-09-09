@@ -1,6 +1,8 @@
 # Project Sylph — Python Brain Sidecar Dependencies
 # Phase 0.4: Install with `pip install -r requirements.txt`
-# Target: Python 3.12, CPU-only inference (GPU reserved for Qwen3.5-9B via Ollama)
+# Phase 11/12: LLM moved to Ollama Cloud; the local GPU now serves Zonos TTS.
+# Target: Python 3.12. Install a CUDA torch build FIRST so Zonos runs on GPU:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 # --- Core Server ---
 fastapi==0.115.*
@@ -12,7 +14,23 @@ websockets==13.*
 faster-whisper==1.1.*
 silero-vad==5.*
 
-# --- Text-to-Speech (CPU) ---
+# --- Text-to-Speech ---
+# Primary: Zonos (GPU, emotion-conditioned). NOTE: the sdist/wheel build drops
+# the zonos.backbone subpackage — install EDITABLE from a clone instead, with
+# --no-deps so its torch pin can't clobber the CUDA build:
+#   git clone --depth 1 https://github.com/Zyphra/Zonos.git vendor/Zonos
+#   pip install -e vendor/Zonos --no-deps
+# (then the explicit runtime deps below)
+phonemizer
+espeakng-loader
+inflect
+kanjize
+sudachipy
+sudachidict-full
+transformers
+safetensors
+huggingface_hub
+# Fallback: Kokoro (also provides the Zonos speaker-reference voice)
 kokoro>=0.9
 misaki[en]
 onnxruntime>=1.19
@@ -39,3 +57,13 @@ rapidocr-onnxruntime>=1.3
 
 # --- HTTP Client ---
 httpx>=0.27
+
+# --- Tools (Phase 9) ---
+# These were present in the original venv but never recorded here — the
+# sidecar imports them unconditionally via tools/__init__.py.
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+beautifulsoup4
+playwright
+pypdf

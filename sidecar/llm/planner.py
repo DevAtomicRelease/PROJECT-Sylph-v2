@@ -17,13 +17,19 @@ import asyncio
 from datetime import datetime
 from typing import Any, Optional, Callable, Awaitable
 
-from .ollama_client import OllamaClient
+from .ollama_client import OllamaClient, OllamaError
 from .sentence_splitter import SentenceSplitter
 from .sampling_config import get_sampling_params
 from . import intent_router
 import tools
 
 logger = logging.getLogger("sylph.llm.planner")
+
+# Safety bound on the tool-calling agent loop. Without it, a model that keeps
+# emitting tool calls (or ping-pongs between two tools) loops forever — a hard
+# hang in a live voice UI. Six rounds is plenty for any real multi-tool answer.
+# Phase A.
+MAX_TOOL_ITERATIONS = 6
 
 # Load system prompt template
 _PROMPT_DIR = os.path.join(os.path.dirname(__file__), "prompts")
@@ -250,6 +256,47 @@ TOOLS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Keyword-based emotion inference (no LLM call — a fast regex-free scan)
+# ---------------------------------------------------------------------------
+
+_EMOTION_KEYWORDS: dict[str, list[str]] = {
+    "happy": ["happy", "great", "wonderful", "love", "excellent", "excited",
+              "glad", "yay", "awesome", "fantastic", "haha", "lol", "fun",
+              "perfect", "amazing", "yes!", "absolutely", "delightful"],
+    "angry": ["frustrating", "annoying", "ridiculous", "no way", "seriously",
+              "unbelievable", "stop", "wrong", "mistake", "problem", "ugh",
+              "terrible", "awful", "broken", "fix this", "again?"],
+    "sad": ["sorry", "unfortunately", "can't", "unable", "failed", "sad",
+            "difficult", "hard", "miss", "lost", "broken", "gone", "not working"],
+    "relaxed": ["sure", "of course", "no problem", "happy to help", "understood",
+                "makes sense", "alright", "okay", "got it", "certainly"],
+    "surprised": ["wow", "really?", "that's interesting", "didn't expect",
+                  "surprising", "unexpected", "oh!", "wait", "whoa", "actually"],
+}
+
+
+def infer_emotion(text: str) -> str:
+    """
+    Infer the emotional tone of a piece of text by keyword scoring.
+    Returns one of 'happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'.
+
+    Used per-response for mood impulses AND per-clause by the TTS pipeline so
+    the voice can carry the emotion of the sentence being spoken right now —
+    all without a single extra LLM call.
+    """
+    if not text:
+        return "neutral"
+    text_lower = text.lower()
+    scores = {label: 0 for label in _EMOTION_KEYWORDS}
+    for label, words in _EMOTION_KEYWORDS.items():
+        for w in words:
+            if w in text_lower:
+                scores[label] += 1
+    best = max(scores, key=scores.get)  # type: ignore[arg-type]
+    return best if scores[best] > 0 else "neutral"
+
+
 class ThinkFilter:
     """Filters out <think>...</think> tags and contents from a stream of text."""
 
@@ -456,38 +503,25 @@ class ConversationPlanner:
             *self._get_windowed_history(),
         ]
 
-        # Step 4: Run the tool calling agent loop
-        while True:
-            logger.info("Calling Ollama (stream_chat_raw) to check for tool calls...")
+        # Step 4: Run the tool calling agent loop (bounded — see MAX_TOOL_ITERATIONS)
+        for _tool_iter in range(MAX_TOOL_ITERATIONS):
+            logger.info("Calling Ollama (stream_chat_raw) to check for tool calls... (round %d/%d)",
+                        _tool_iter + 1, MAX_TOOL_ITERATIONS)
             
             # Mood-based sampling parameters (Item 4)
             sampling = get_sampling_params(self._current_mood)
             logger.info("Mood '%s' → sampling: temp=%.2f, top_p=%.2f, rep_pen=%.2f",
                         self._current_mood, sampling["temperature"], sampling["top_p"], sampling["repetition_penalty"])
             
-            # Retry mechanism: 3 retries, 5s apart (Phase 10.2)
-            stream = None
-            for attempt in range(3):
-                try:
-                    stream = self.ollama.stream_chat_raw(
-                        messages, tools=TOOLS,
-                        temperature=sampling["temperature"],
-                        top_p=sampling["top_p"],
-                        repetition_penalty=sampling["repetition_penalty"],
-                    )
-                    break
-                except Exception as e:
-                    logger.warning("Ollama stream connection attempt %d failed: %s", attempt + 1, e)
-                    if attempt < 2:
-                        await asyncio.sleep(5.0)
-                    else:
-                        logger.error("Ollama connection failed after 3 attempts.")
-                        if self.tts_callback:
-                            await self.tts_callback("I am having trouble connecting to Ollama. Let me try to recover.")
-                        break
-
-            if stream is None:
-                break
+            # Connection retries live inside the client now (the old loop here
+            # wrapped lazy generator creation, which can never fail — real
+            # network errors surface on first iteration, handled below).
+            stream = self.ollama.stream_chat_raw(
+                messages, tools=TOOLS,
+                temperature=sampling["temperature"],
+                top_p=sampling["top_p"],
+                repetition_penalty=sampling["repetition_penalty"],
+            )
 
             # Buffer chunks until we can decide if it's a tool call or text response
             buffered_chunks = []
@@ -521,6 +555,22 @@ class ConversationPlanner:
             except asyncio.CancelledError:
                 logger.info("Ollama stream reading was cancelled.")
                 raise
+            except OllamaError as e:
+                # Cloud unreachable / quota / auth — explain it out loud once
+                # and end the turn. The typed user_message says what actually
+                # happened (offline vs. capped vs. bad key).
+                logger.error("LLM turn failed before first token: %s", e.detail)
+                if self.tts_callback:
+                    try:
+                        await self.tts_callback(e.user_message)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        pass
+                self._message_history.append(
+                    {"role": "assistant", "content": e.user_message}
+                )
+                return e.user_message
             except Exception as e:
                 logger.error("Error reading from Ollama stream during buffering: %s", e)
 
@@ -629,6 +679,11 @@ class ConversationPlanner:
                                     yield filtered
                     except asyncio.CancelledError:
                         raise
+                    except OllamaError as e:
+                        # Stream died mid-response: whatever was said stands;
+                        # append the explanation so the cutoff isn't silent.
+                        logger.error("LLM stream died mid-response: %s", e.detail)
+                        yield " " + e.user_message
                     except Exception as e:
                         logger.error("Error reading text from Ollama stream: %s", e)
 
@@ -684,8 +739,19 @@ class ConversationPlanner:
 
                 return response_text
 
-        # Fallback if the loop was aborted
-        return ""
+        # Tool-iteration budget exhausted without the model settling on a text
+        # answer — stop chaining tools and say so rather than hang or return "".
+        logger.warning("Tool loop hit MAX_TOOL_ITERATIONS (%d) without a text reply", MAX_TOOL_ITERATIONS)
+        fallback = "I got a bit tangled chaining tools there — let me stop and answer directly next time."
+        if self.tts_callback:
+            try:
+                await self.tts_callback(fallback)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+        self._message_history.append({"role": "assistant", "content": fallback})
+        return fallback
 
     def clear_history(self) -> None:
         """Clear conversation history."""
@@ -730,55 +796,8 @@ class ConversationPlanner:
         if not self.mood_callback or not response_text:
             return
 
-        text_lower = response_text.lower()
-
-        # Score each emotion based on keyword presence
-        scores: dict[str, int] = {
-            "happy": 0, "angry": 0, "sad": 0,
-            "relaxed": 0, "surprised": 0, "neutral": 0,
-        }
-
-        happy_words = ["happy", "great", "wonderful", "love", "excellent", "excited",
-                       "glad", "yay", "awesome", "fantastic", "haha", "lol", "fun",
-                       "perfect", "amazing", "yes!", "absolutely", "delightful"]
-        angry_words = ["frustrating", "annoying", "ridiculous", "no way", "seriously",
-                       "unbelievable", "stop", "wrong", "mistake", "problem", "ugh",
-                       "terrible", "awful", "broken", "fix this", "again?"]
-        sad_words = ["sorry", "unfortunately", "can't", "unable", "failed", "sad",
-                     "difficult", "hard", "miss", "lost", "broken", "gone", "not working"]
-        relaxed_words = ["sure", "of course", "no problem", "happy to help", "understood",
-                         "makes sense", "alright", "okay", "got it", "certainly"]
-        surprised_words = ["wow", "really?", "that's interesting", "didn't expect",
-                           "surprising", "unexpected", "oh!", "wait", "whoa", "actually"]
-
-        for w in happy_words:
-            if w in text_lower:
-                scores["happy"] += 1
-        for w in angry_words:
-            if w in text_lower:
-                scores["angry"] += 1
-        for w in sad_words:
-            if w in text_lower:
-                scores["sad"] += 1
-        for w in relaxed_words:
-            if w in text_lower:
-                scores["relaxed"] += 1
-        for w in surprised_words:
-            if w in text_lower:
-                scores["surprised"] += 1
-
-        # Pick the highest-scoring emotion (minimum score threshold = 1)
-        best_emotion = max(scores, key=scores.get)  # type: ignore
-        best_score = scores[best_emotion]
-
-        if best_score == 0:
-            best_emotion = "neutral"
-
-        logger.debug(
-            "Emotion inference: scores=%s, selected='%s'",
-            {k: v for k, v in scores.items() if v > 0},
-            best_emotion,
-        )
+        best_emotion = infer_emotion(response_text)
+        logger.debug("Emotion inference selected '%s'", best_emotion)
 
         try:
             await self.mood_callback(best_emotion)

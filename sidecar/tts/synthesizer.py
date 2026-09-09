@@ -23,10 +23,27 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, Optional
 
+from .audio_post import apply_emotion_fx
+
 logger = logging.getLogger("sylph.tts.synthesizer")
 
 SAMPLE_RATE = 24000
 DEFAULT_VOICE = "af_bella"
+
+# Legacy emotion→speed shaping for the Kokoro fallback path. Kokoro cannot
+# express emotion natively, so label-driven speed + audio_post pitch tricks
+# are the best it can do. (Zonos conditions on emotion directly and never
+# uses this.)
+EMOTION_SPEED_MAP: dict[str, float] = {
+    "happy":     1.08,
+    "angry":     1.12,
+    "sad":       0.88,
+    "relaxed":   0.95,
+    "surprised": 1.10,
+    "neutral":   1.00,
+    "shy":       0.92,
+    "bored":     0.90,
+}
 
 _SENTINEL = object()
 
@@ -102,28 +119,40 @@ class Synthesizer:
     # ------------------------------------------------------------------
 
     async def synthesize_stream(
-        self, text: str, speed: float = 1.0
+        self,
+        text: str,
+        speed: float = 1.0,
+        emotion_label: str = "neutral",
+        emotion_intensity: float = 1.0,
     ) -> AsyncGenerator[dict, None]:
         """
         Async generator yielding {"graphemes", "phonemes", "audio"} dicts
         as each segment finishes synthesis on the worker thread.
+
+        emotion_label/emotion_intensity match the ZonosSynthesizer signature;
+        Kokoro approximates them with its legacy speed map + audio FX.
         """
         if not self._loaded:
             await asyncio.get_running_loop().run_in_executor(_tts_pool, self.load)
         if self._pipeline is None:
             return
 
+        effective_speed = speed * EMOTION_SPEED_MAP.get(emotion_label, 1.0)
+
         q: thread_queue.Queue = thread_queue.Queue(maxsize=4)
 
         def _producer():
             try:
                 for graphemes, phonemes, audio in self._pipeline(
-                    text, voice=self.voice, speed=speed
+                    text, voice=self.voice, speed=effective_speed
                 ):
+                    audio_np = self._to_numpy(audio)
+                    if emotion_label != "neutral":
+                        audio_np = apply_emotion_fx(audio_np, emotion_label, SAMPLE_RATE)
                     q.put({
                         "graphemes": graphemes,
                         "phonemes": phonemes,
-                        "audio": self._to_numpy(audio),
+                        "audio": audio_np,
                     })
             except Exception as e:
                 logger.error("Kokoro synthesis error: %s", e)
@@ -162,9 +191,18 @@ class Synthesizer:
             })
         return results
 
-    async def synthesize(self, text: str, speed: float = 1.0) -> list[dict]:
+    async def synthesize(
+        self,
+        text: str,
+        speed: float = 1.0,
+        emotion_label: str = "neutral",
+        emotion_intensity: float = 1.0,
+    ) -> list[dict]:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_tts_pool, self.synthesize_sync, text, speed)
+        effective_speed = speed * EMOTION_SPEED_MAP.get(emotion_label, 1.0)
+        return await loop.run_in_executor(
+            _tts_pool, self.synthesize_sync, text, effective_speed
+        )
 
     @property
     def sample_rate(self) -> int:
