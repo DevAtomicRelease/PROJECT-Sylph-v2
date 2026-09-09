@@ -70,3 +70,6 @@ OPTIMIZATION_REPORT.md
 
 # Misc
 unique_phonemes.txt
+
+# pytest
+.pytest_cache/

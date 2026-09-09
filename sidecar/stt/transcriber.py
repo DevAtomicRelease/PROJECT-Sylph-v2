@@ -46,7 +46,13 @@ class Transcriber:
 
     def __init__(self, model_size: str = DEFAULT_MODEL):
         import threading
-        self._model_size = model_size
+        # Phase C: STT device/model are env-configurable. With a local LLM +
+        # GPU TTS the 8 GB budget is tight; STT_DEVICE=cpu keeps whisper off the
+        # GPU entirely (frees ~1 GB) at the cost of slower transcription.
+        #   STT_DEVICE = auto (default: GPU first, CPU fallback) | cuda | cpu
+        #   STT_MODEL  = faster-whisper model id (default distil-large-v3)
+        self._model_size = os.environ.get("STT_MODEL", model_size)
+        self._device_pref = os.environ.get("STT_DEVICE", "auto").strip().lower()
         self._model = None
         self._loaded = False
         self._lock = threading.Lock()
@@ -62,25 +68,33 @@ class Transcriber:
         """Actual load logic. Caller must hold self._lock."""
         from faster_whisper import WhisperModel
 
-        # Try to load on GPU first (device="cuda")
-        try:
-            logger.info("Attempting to load faster-whisper model '%s' on GPU (CUDA, float16)...", self._model_size)
-            model = WhisperModel(
-                self._model_size,
-                device="cuda",
-                compute_type="int8_float16",
-                cpu_threads=4,
-            )
-            # Verify CUDA execution works (CTranslate2 loads cuBLAS/cuDNN lazily on first transcribe)
-            dummy_audio = np.zeros(16000, dtype=np.float32)
-            list(model.transcribe(dummy_audio, beam_size=1)[0])
+        # Try to load on GPU first (device="cuda") — unless STT_DEVICE=cpu, in
+        # which case skip the GPU attempt entirely (no wasted download/verify,
+        # no VRAM pressure on the shared 8 GB budget).
+        if self._device_pref != "cpu":
+            try:
+                logger.info("Attempting to load faster-whisper model '%s' on GPU (CUDA, float16)...", self._model_size)
+                model = WhisperModel(
+                    self._model_size,
+                    device="cuda",
+                    compute_type="int8_float16",
+                    cpu_threads=4,
+                )
+                # Verify CUDA execution works (CTranslate2 loads cuBLAS/cuDNN lazily on first transcribe)
+                dummy_audio = np.zeros(16000, dtype=np.float32)
+                list(model.transcribe(dummy_audio, beam_size=1)[0])
 
-            self._model = model
-            self._loaded = True
-            logger.info("faster-whisper '%s' loaded on GPU successfully and verified", self._model_size)
-            return
-        except Exception as cuda_err:
-            logger.warning("Failed to load or verify faster-whisper on GPU: %s. Falling back to CPU...", cuda_err)
+                self._model = model
+                self._loaded = True
+                logger.info("faster-whisper '%s' loaded on GPU successfully and verified", self._model_size)
+                return
+            except Exception as cuda_err:
+                if self._device_pref == "cuda":
+                    logger.error("STT_DEVICE=cuda but GPU load failed: %s — falling back to CPU anyway", cuda_err)
+                else:
+                    logger.warning("Failed to load or verify faster-whisper on GPU: %s. Falling back to CPU...", cuda_err)
+        else:
+            logger.info("STT_DEVICE=cpu — skipping GPU, loading faster-whisper on CPU")
 
         # Fallback to CPU. If the requested model is large, switch to a smaller model for CPU to keep latency low.
         cpu_model = self._model_size

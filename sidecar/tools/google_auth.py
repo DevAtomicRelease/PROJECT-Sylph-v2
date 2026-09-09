@@ -18,10 +18,32 @@ CONFIG_DIR = os.path.expanduser("~/.sylph/config")
 TOKEN_PATH = os.path.join(CONFIG_DIR, "token.json")
 CREDENTIALS_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "credentials.json"))
 
+
+class GoogleNotConfiguredError(RuntimeError):
+    """Raised when Google email/calendar aren't set up. Carries a short,
+    speakable message the planner can relay verbatim to the user."""
+
+
+def google_configured() -> bool:
+    """True if a saved token or a credentials.json is present."""
+    return os.path.exists(TOKEN_PATH) or os.path.exists(CREDENTIALS_PATH)
+
+
 def get_google_credentials() -> Credentials:
-    """Load or retrieve Google OAuth2 credentials."""
+    """Load or retrieve Google OAuth2 credentials.
+
+    Raises GoogleNotConfiguredError (not a raw FileNotFoundError) when nothing
+    is set up, so the tool layer degrades gracefully with a clean message
+    instead of a stack trace. (Phase C)
+    """
     creds = None
     os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    if not os.path.exists(TOKEN_PATH) and not os.path.exists(CREDENTIALS_PATH):
+        raise GoogleNotConfiguredError(
+            "Google account isn't set up. Add credentials.json to the project "
+            "root to enable email and calendar."
+        )
 
     # Load token from ~/.sylph/config/token.json if it exists
     if os.path.exists(TOKEN_PATH):

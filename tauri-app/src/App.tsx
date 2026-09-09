@@ -36,8 +36,8 @@ import type { MoodLabel, MoodValues } from "./stores";
 import { VRM } from "@pixiv/three-vrm";
 import "./App.css";
 
-// Path to the VRM avatar file — served from the public directory
-const AVATAR_URL = "/avatar.vrm";
+// Default VRM lives in the public directory; the actual URL now comes from the
+// settings store (Phase C — user-selectable avatar), falling back to this.
 
 function App() {
   const visemeSchedulerRef = useRef<VisemeScheduler | null>(null);
@@ -56,6 +56,7 @@ function App() {
   // Phase 7: Sync Quiet Mode to Rust
   // -----------------------------------------------------------------------
   const quietMode = useSettingsStore((state) => state.quietMode);
+  const vrmUrl = useSettingsStore((state) => state.vrmUrl);
   useEffect(() => {
     invoke("set_quiet_mode", { quiet: quietMode }).catch((err) =>
       console.error("[App] Failed to sync quiet mode to Rust:", err)
@@ -339,7 +340,8 @@ function App() {
     <div className="app-root" id="app-root">
       {/* Phase 1.4: 3D Avatar (transparent WebGL canvas) */}
       <AvatarCanvas
-        vrmUrl={AVATAR_URL}
+        key={vrmUrl}
+        vrmUrl={vrmUrl}
         onVRMLoaded={handleVRMLoaded}
         onVisemeSchedulerReady={handleVisemeSchedulerReady}
       />

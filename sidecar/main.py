@@ -99,6 +99,12 @@ interrupt_gate = InterruptGate()
 _current_thread_id = str(uuid4())
 _global_speed = 1.0
 
+# Phase C: tool interaction timeouts are env-configurable (seconds). On timeout
+# a confirmation defaults to DENY (never silently act) and a capture returns an
+# empty result. Raise these on slower machines instead of losing the action.
+CONFIRM_TIMEOUT = float(os.environ.get("SYLPH_CONFIRM_TIMEOUT", "30"))
+CAPTURE_TIMEOUT = float(os.environ.get("SYLPH_CAPTURE_TIMEOUT", "10"))
+
 # Concurrency & Interruption control
 active_response_task: Optional[asyncio.Task] = None
 _active_task_started_at: float = 0.0  # time.time() when the active task was registered
@@ -352,8 +358,7 @@ async def wait_for_user_confirmation(action_name: str, details: dict) -> bool:
     })
 
     try:
-        # Wait up to 30 seconds
-        approved = await asyncio.wait_for(fut, timeout=30.0)
+        approved = await asyncio.wait_for(fut, timeout=CONFIRM_TIMEOUT)
         logger.info("Confirmation %s response: %s", action_id, approved)
         return approved
     except asyncio.TimeoutError:
@@ -383,8 +388,7 @@ async def capture_screen_on_demand() -> dict:
     })
 
     try:
-        # Wait up to 10 seconds
-        res = await asyncio.wait_for(fut, timeout=10.0)
+        res = await asyncio.wait_for(fut, timeout=CAPTURE_TIMEOUT)
         image = res.get("image", "")
         window_name = res.get("window_name", "")
         
@@ -430,7 +434,7 @@ def _is_screen_query(text: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global planner, sync_worker
+    global planner, sync_worker, _current_thread_id
     logger.info("=== Sylph Brain Sidecar starting ===\n")
 
     # Load VAD at startup (lightweight)
@@ -475,6 +479,21 @@ async def lifespan(app: FastAPI):
         intent_callback=_planner_intent_callback,
     )
     logger.info("Conversation planner initialized")
+
+    # Phase C: resume the most recent conversation thread across restarts.
+    # main.py assigns a fresh in-memory thread id each boot; without this the
+    # planner would start amnesiac even though short-term memory persisted the
+    # messages. Reattach to the newest thread and seed the planner's window.
+    try:
+        if short_term._initialized:
+            recent_threads = short_term.list_threads(limit=1)
+            if recent_threads:
+                _current_thread_id = recent_threads[0]["thread_id"]
+                recent_msgs = short_term.get_recent_messages(_current_thread_id, limit=20)
+                planner.load_history(recent_msgs)
+                logger.info("Resumed thread %s (%d messages)", _current_thread_id, len(recent_msgs))
+    except Exception as e:
+        logger.warning("History restore skipped: %s", e)
 
     # Start memory sync worker
     sync_worker = MemorySyncWorker(

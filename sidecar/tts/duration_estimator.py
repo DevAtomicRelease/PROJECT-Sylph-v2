@@ -58,6 +58,11 @@ def parse_phoneme_string(phonemes: str) -> list[str]:
     if not phonemes:
         return []
 
+    # misaki emits ❓ (U+2753) for out-of-vocabulary words it can't G2P. Left as
+    # is it maps to no viseme (a closed, dead mouth for that whole word). Treat
+    # it as a schwa so the mouth keeps a neutral movement instead. (Phase C)
+    phonemes = phonemes.replace("❓", "ə")
+
     # Remove stress marks, punctuation, and other non-phoneme annotations
     cleaned = re.sub(r"[ˈˌ.ˑ,?!;\-—]", "", phonemes.strip())
 

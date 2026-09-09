@@ -13,11 +13,13 @@ export function SettingsPanel() {
     autonomous,
     commentFrequency,
     quietMode,
+    vrmUrl,
     setVoice,
     setSpeed,
     setAutonomous,
     setCommentFrequency,
     setQuietMode,
+    setVrmUrl,
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<"memories" | "preferences" | "privacy" | "data">("preferences");
@@ -219,6 +221,25 @@ export function SettingsPanel() {
                   <option value="am_adam">Adam (Male)</option>
                   <option value="am_michael">Michael (Male)</option>
                 </select>
+              </div>
+
+              <div className="settings-control">
+                <label>Avatar (VRM)</label>
+                <input
+                  type="text"
+                  value={vrmUrl}
+                  placeholder="/avatar.vrm or https://…/model.vrm"
+                  onChange={(e) => setVrmUrl(e.target.value)}
+                />
+                <input
+                  type="file"
+                  accept=".vrm"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setVrmUrl(URL.createObjectURL(f), false);
+                  }}
+                />
+                <small>Paste a URL or path (persists across restarts), or pick a file (this session only).</small>
               </div>
 
               <div className="settings-control">

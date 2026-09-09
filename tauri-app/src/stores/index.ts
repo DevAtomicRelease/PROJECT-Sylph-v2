@@ -176,6 +176,19 @@ export const useConfirmStore = create<ConfirmState>((set) => ({
 // Settings Store — Phase 10
 // ---------------------------------------------------------------------------
 
+// VRM avatar selection (Phase C). Persisted per-viewer in localStorage so the
+// chosen model survives restarts. A file chosen via the picker becomes a
+// session-only object URL; a pasted URL/path persists.
+const VRM_KEY = "sylph.vrmUrl";
+const DEFAULT_VRM = "/avatar.vrm";
+function loadVrmUrl(): string {
+  try {
+    return localStorage.getItem(VRM_KEY) || DEFAULT_VRM;
+  } catch {
+    return DEFAULT_VRM;
+  }
+}
+
 interface SettingsState {
   showSettings: boolean;
   voice: string;
@@ -183,12 +196,15 @@ interface SettingsState {
   autonomous: boolean;
   commentFrequency: number;
   quietMode: boolean;
+  vrmUrl: string;
   toggleSettings: () => void;
   setVoice: (voice: string) => void;
   setSpeed: (speed: number) => void;
   setAutonomous: (autonomous: boolean) => void;
   setCommentFrequency: (frequency: number) => void;
   setQuietMode: (quiet: boolean) => void;
+  /** Set the avatar VRM. `persist` false for session-only object URLs. */
+  setVrmUrl: (url: string, persist?: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -198,11 +214,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   autonomous: true,
   commentFrequency: 60,
   quietMode: false,
+  vrmUrl: loadVrmUrl(),
   toggleSettings: () => set((s) => ({ showSettings: !s.showSettings })),
   setVoice: (voice) => set({ voice }),
   setSpeed: (speed) => set({ speed }),
   setAutonomous: (autonomous) => set({ autonomous }),
   setCommentFrequency: (commentFrequency) => set({ commentFrequency }),
   setQuietMode: (quietMode) => set({ quietMode }),
+  setVrmUrl: (vrmUrl, persist = true) => {
+    try {
+      if (persist) localStorage.setItem(VRM_KEY, vrmUrl);
+    } catch {
+      /* private mode / storage disabled — keep it in memory only */
+    }
+    set({ vrmUrl });
+  },
 }));
 

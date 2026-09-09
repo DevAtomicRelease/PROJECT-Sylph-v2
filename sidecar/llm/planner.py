@@ -758,6 +758,23 @@ class ConversationPlanner:
         self._message_history.clear()
         logger.info("Conversation history cleared")
 
+    def load_history(self, messages: list[dict]) -> None:
+        """Seed conversation history from a persisted store on startup.
+
+        Only plain user/assistant turns are restored (tool exchanges are not
+        replayed — a window that opens mid tool-call confuses the chat
+        template), capped to the sliding window. (Phase C: continuity across
+        restarts, since main.py assigns a fresh in-memory thread each boot.)
+        """
+        restored = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ]
+        if restored:
+            self._message_history = restored[-self._max_history:]
+            logger.info("Restored %d messages into planner history", len(self._message_history))
+
     async def move_avatar(self, position: str = "center") -> str:
         """LLM-callable avatar relocation (fallback for phrasing the
         deterministic router didn't match)."""
