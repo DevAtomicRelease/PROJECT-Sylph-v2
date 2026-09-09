@@ -551,6 +551,13 @@ async def lifespan(app: FastAPI):
     short_term.close()
     long_term.close()
     await ollama.close()
+    # Phase B: tear down the Chatterbox subprocess worker if one is running.
+    _synth_close = getattr(synthesizer, "close", None)
+    if callable(_synth_close):
+        try:
+            _synth_close()
+        except Exception as e:
+            logger.debug("Synthesizer close failed: %s", e)
     logger.info("=== Sylph Brain Sidecar shutting down ===")
 
 

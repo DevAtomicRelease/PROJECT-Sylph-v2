@@ -13,10 +13,22 @@ from .payload import build_dual_payload
 logger = logging.getLogger("sylph.tts")
 
 
+def _build_primary(engine: str):
+    """Instantiate the requested emotional engine. Raises on unavailability so
+    the caller can fall back to Kokoro."""
+    if engine == "chatterbox":
+        from .chatterbox_synthesizer import ChatterboxSynthesizer
+        return ChatterboxSynthesizer()
+    if engine == "zonos":
+        from .zonos_synthesizer import ZonosSynthesizer
+        return ZonosSynthesizer()
+    raise ValueError(f"unknown primary TTS engine '{engine}'")
+
+
 class ResilientSynthesizer:
     """
-    Facade over the primary engine (Zonos, emotional) with automatic
-    fallback to Kokoro (flat but battle-tested).
+    Facade over a primary emotional engine (Chatterbox by default, or Zonos)
+    with automatic fallback to Kokoro (flat but battle-tested).
 
     Fallback triggers:
     - load() failure (missing package, no CUDA, model download failed)
@@ -27,13 +39,12 @@ class ResilientSynthesizer:
     losing emotion conditioning.
     """
 
-    def __init__(self):
-        self._engine_name = "zonos"
+    def __init__(self, primary: str = "chatterbox"):
+        self._engine_name = primary
         try:
-            from .zonos_synthesizer import ZonosSynthesizer
-            self._active = ZonosSynthesizer()
+            self._active = _build_primary(primary)
         except Exception as e:
-            logger.warning("Zonos unavailable at import (%s) — using Kokoro", e)
+            logger.warning("%s unavailable at import (%s) — using Kokoro", primary, e)
             self._active = Synthesizer()
             self._engine_name = "kokoro"
 
@@ -58,6 +69,15 @@ class ResilientSynthesizer:
         except Exception as e:
             self._fall_back(e)
             self._active.load()
+
+    def close(self) -> None:
+        """Release the active engine's resources (e.g. the Chatterbox worker)."""
+        closer = getattr(self._active, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
 
     # -- delegated API -----------------------------------------------------
 
@@ -130,12 +150,22 @@ class ResilientSynthesizer:
 
 
 def create_synthesizer():
-    """Build the configured TTS engine (TTS_ENGINE=zonos|kokoro, default zonos)."""
-    engine = os.environ.get("TTS_ENGINE", "zonos").strip().lower()
+    """Build the configured TTS engine.
+
+    TTS_ENGINE=chatterbox (default) — realtime emotional voice via an isolated
+      subprocess worker, Kokoro fallback.
+    TTS_ENGINE=zonos — legacy emotional engine (RTF~8 here), Kokoro fallback.
+    TTS_ENGINE=kokoro — flat but battle-tested, no GPU emotional engine.
+    """
+    engine = os.environ.get("TTS_ENGINE", "chatterbox").strip().lower()
     if engine == "kokoro":
         logger.info("TTS engine: Kokoro (explicit via TTS_ENGINE)")
         return Synthesizer()
-    return ResilientSynthesizer()
+    if engine == "zonos":
+        logger.info("TTS engine: Zonos primary (Kokoro fallback)")
+        return ResilientSynthesizer(primary="zonos")
+    logger.info("TTS engine: Chatterbox primary (Kokoro fallback)")
+    return ResilientSynthesizer(primary="chatterbox")
 
 
 __all__ = [

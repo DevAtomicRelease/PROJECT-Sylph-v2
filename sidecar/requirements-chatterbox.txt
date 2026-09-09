@@ -1,0 +1,22 @@
+# Project Sylph — Chatterbox TTS worker dependencies (Phase B)
+#
+# These install into a DEDICATED venv (.venv-chatterbox), NOT the main sidecar
+# venv. Chatterbox hard-pins transformers==5.2.0 and numpy<2.0, which would
+# perturb the main venv (Zonos/Kokoro/faster-whisper), so it is isolated and
+# driven as a subprocess worker (sidecar/tts/chatterbox_worker.py).
+#
+# Install (Windows, Python 3.12):
+#   py -3.12 -m venv .venv-chatterbox
+#   .venv-chatterbox\Scripts\python -m pip install --upgrade pip
+#   # CUDA torch FIRST so the chatterbox pin (torch==2.6.0) is satisfied by the
+#   # cu124 local build instead of pulling the CPU wheel:
+#   .venv-chatterbox\Scripts\pip install torch==2.6.0 torchaudio==2.6.0 \
+#       --index-url https://download.pytorch.org/whl/cu124
+#   .venv-chatterbox\Scripts\pip install -r sidecar/requirements-chatterbox.txt
+
+chatterbox-tts
+# torch / torchaudio are installed separately (CUDA build, see above); listed
+# here only for documentation — do NOT let pip resolve them from PyPI or it
+# will replace the cu124 build with a CPU wheel.
+# torch==2.6.0
+# torchaudio==2.6.0

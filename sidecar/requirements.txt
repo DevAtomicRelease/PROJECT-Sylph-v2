@@ -15,7 +15,12 @@ faster-whisper==1.1.*
 silero-vad==5.*
 
 # --- Text-to-Speech ---
-# Primary: Zonos (GPU, emotion-conditioned). NOTE: the sdist/wheel build drops
+# Phase B primary: Chatterbox (GPU, realtime, emotion-exaggeration dial). It is
+# NOT installed in this venv — it hard-pins transformers==5.2.0 / numpy<2.0 and
+# would perturb these deps, so it lives in a dedicated venv driven as a
+# subprocess worker. See sidecar/requirements-chatterbox.txt.
+#
+# Legacy: Zonos (GPU, emotion-conditioned). NOTE: the sdist/wheel build drops
 # the zonos.backbone subpackage — install EDITABLE from a clone instead, with
 # --no-deps so its torch pin can't clobber the CUDA build:
 #   git clone --depth 1 https://github.com/Zyphra/Zonos.git vendor/Zonos

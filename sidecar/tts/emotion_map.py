@@ -80,3 +80,45 @@ def mood_to_voice(label: str, intensity: float = 1.0) -> VoiceEmotion:
         pitch_std=NEUTRAL_PITCH_STD + (preset.pitch_std - NEUTRAL_PITCH_STD) * t,
         speaking_rate=NEUTRAL_RATE + (preset.speaking_rate - NEUTRAL_RATE) * t,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase B — Chatterbox conditioning
+# ---------------------------------------------------------------------------
+# Chatterbox has no per-emotion vector; it exposes just two knobs:
+#   exaggeration — expressiveness / emotional intensity (0.5 = neutral default,
+#                  >0.7 gets dramatic and slightly faster)
+#   cfg_weight   — pacing / adherence (0.5 default; lower ~0.3 slows and
+#                  deliberates, which suits low-arousal moods)
+# So we map each label to a target expressiveness and a pacing, then scale the
+# exaggeration from the neutral baseline by intensity. Same eight labels the
+# rest of the system speaks, so one label still drives face + gesture + voice.
+
+_CHATTERBOX_NEUTRAL_EXAG = 0.5
+
+# (target_exaggeration, cfg_weight) per label at full intensity.
+_CHATTERBOX_PRESETS: dict[str, tuple[float, float]] = {
+    "happy":     (0.75, 0.55),
+    "angry":     (0.85, 0.55),
+    "surprised": (0.90, 0.55),
+    "relaxed":   (0.50, 0.45),
+    "sad":       (0.45, 0.30),
+    "shy":       (0.45, 0.35),
+    "bored":     (0.40, 0.35),
+    "neutral":   (0.50, 0.50),
+}
+
+
+def mood_to_chatterbox(label: str, intensity: float = 1.0) -> tuple[float, float]:
+    """
+    Resolve an expression label + intensity to Chatterbox (exaggeration,
+    cfg_weight). intensity 0 -> neutral expressiveness; 1 -> full preset.
+    cfg_weight is not interpolated (it is a pacing choice, not an intensity).
+    Values are clamped to Chatterbox's sane operating range.
+    """
+    target_exag, cfg_weight = _CHATTERBOX_PRESETS.get(label, _CHATTERBOX_PRESETS["neutral"])
+    t = max(0.0, min(1.0, intensity))
+    exaggeration = _CHATTERBOX_NEUTRAL_EXAG + (target_exag - _CHATTERBOX_NEUTRAL_EXAG) * t
+    exaggeration = max(0.25, min(1.5, exaggeration))
+    cfg_weight = max(0.2, min(1.0, cfg_weight))
+    return exaggeration, cfg_weight
