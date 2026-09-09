@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
+from .crypto import cipher
+
 logger = logging.getLogger("sylph.memory.short_term")
 
 DEFAULT_DB_DIR = os.path.expanduser("~/.sylph/memory")
@@ -100,7 +102,7 @@ class ShortTermMemory:
 
         cursor = conn.execute(
             "INSERT INTO messages (thread_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-            (thread_id, role, content, now),
+            (thread_id, role, cipher.encrypt(content), now),
         )
         conn.execute(
             "UPDATE threads SET updated_at = ? WHERE thread_id = ?",
@@ -134,7 +136,7 @@ class ShortTermMemory:
 
         # Reverse to get chronological order
         messages = [
-            {"role": row[0], "content": row[1], "timestamp": row[2]}
+            {"role": row[0], "content": cipher.decrypt(row[1]), "timestamp": row[2]}
             for row in reversed(rows)
         ]
         return messages
@@ -162,7 +164,7 @@ class ShortTermMemory:
                 "id": row[0],
                 "thread_id": row[1],
                 "role": row[2],
-                "content": row[3],
+                "content": cipher.decrypt(row[3]),
                 "timestamp": row[4],
             }
             for row in rows
@@ -205,7 +207,7 @@ class ShortTermMemory:
                 "id": row[0],
                 "thread_id": row[1],
                 "role": row[2],
-                "content": row[3],
+                "content": cipher.decrypt(row[3]),
                 "timestamp": row[4],
             }
             for row in rows

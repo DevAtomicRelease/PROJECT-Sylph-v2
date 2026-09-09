@@ -47,6 +47,10 @@ langchain-core>=0.3
 
 # --- Memory ---
 chromadb==0.5.*
+# Phase C+: encrypt message/fact TEXT at rest (Fernet). keyring is optional —
+# used for the key when present (OS credential store), else a 0600 key file.
+cryptography>=42.0
+keyring>=25.0; sys_platform != "linux"  # linux backends vary; key-file fallback covers it
 # sqlcipher3-binary has no Windows wheels. For dev, use plain sqlite.
 # For production encryption, install pysqlcipher3 from source on Linux/macOS.
 # pysqlcipher3>=1.2; sys_platform != "win32"

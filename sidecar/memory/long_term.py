@@ -19,6 +19,8 @@ from uuid import uuid4
 import chromadb
 from chromadb.config import Settings
 
+from .crypto import cipher
+
 logger = logging.getLogger("sylph.memory.long_term")
 
 # Suppress noisy ChromaDB telemetry errors (posthog API mismatch — harmless)
@@ -39,7 +41,18 @@ class LongTermMemory:
         self._persist_dir = persist_dir
         self._client: Optional[chromadb.ClientAPI] = None
         self._collections: dict[str, chromadb.Collection] = {}
+        self._embed = None  # embedding function; lazy so import stays cheap
         self._initialized = False
+
+    def _embed_texts(self, texts: list[str]) -> list:
+        """Embed plaintext ourselves (all-MiniLM-L6-v2, same model Chroma would
+        use by default). This lets us store ENCRYPTED documents while keeping
+        the embeddings — and therefore semantic search — over the plaintext.
+        Encryption-off installs use the identical path, just with clear docs."""
+        if self._embed is None:
+            from chromadb.utils import embedding_functions
+            self._embed = embedding_functions.DefaultEmbeddingFunction()
+        return self._embed(texts)
 
     def initialize(self) -> None:
         """Initialize ChromaDB client and collections."""
@@ -103,8 +116,11 @@ class LongTermMemory:
             **(metadata or {}),
         }
 
+        # Embed the plaintext, then store the document encrypted. Retrieval
+        # works off the embedding, so search is unaffected by encryption.
         self._collections[category].add(
-            documents=[text],
+            documents=[cipher.encrypt(text)],
+            embeddings=self._embed_texts([text]),
             metadatas=[fact_metadata],
             ids=[fact_id],
         )
@@ -142,10 +158,12 @@ class LongTermMemory:
             if col is None or col.count() == 0:
                 continue
 
-            # Query ChromaDB
+            # Query by our own embedding of the plaintext query so it matches
+            # the plaintext-derived stored embeddings; documents come back
+            # encrypted and are decrypted below.
             actual_k = min(top_k, col.count())
             results = col.query(
-                query_texts=[query],
+                query_embeddings=self._embed_texts([query]),
                 n_results=actual_k,
                 include=["documents", "metadatas", "distances"],
             )
@@ -159,7 +177,7 @@ class LongTermMemory:
                 similarity = 1.0 - dist
                 if similarity >= min_similarity:
                     all_results.append({
-                        "text": doc,
+                        "text": cipher.decrypt(doc),
                         "category": cat_name,
                         "similarity": round(similarity, 3),
                         "metadata": meta,
@@ -186,7 +204,7 @@ class LongTermMemory:
             return False
 
         results = col.query(
-            query_texts=[text],
+            query_embeddings=self._embed_texts([text]),
             n_results=1,
             include=["distances"],
         )
@@ -218,7 +236,7 @@ class LongTermMemory:
             for fid, doc, meta in zip(ids, documents, metadatas):
                 all_facts.append({
                     "id": fid,
-                    "text": doc,
+                    "text": cipher.decrypt(doc),
                     "category": name,
                     "metadata": meta,
                 })
