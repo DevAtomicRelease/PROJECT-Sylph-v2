@@ -393,17 +393,20 @@ async def capture_screen_on_demand() -> dict:
         window_name = res.get("window_name", "")
         
         if not image:
-            return {"ocr_text": "Failed to capture screen (empty image payload)", "window_name": "Unknown"}
-            
-        # Run OCR
+            return {"ocr_text": "Failed to capture screen (empty image payload)", "window_name": "Unknown", "image": ""}
+
+        # Run OCR (still useful as a text hint) AND return the raw image so the
+        # caller can hand the actual pixels to the multimodal model — OCR alone
+        # is blind to graphics, icons, and layout.
         result = screen_analyzer.process_capture(image, window_name)
         return {
             "ocr_text": result["ocr_text"],
             "window_name": window_name,
+            "image": image,
         }
     except asyncio.TimeoutError:
         logger.warning("Screen capture request %s timed out", capture_id)
-        return {"ocr_text": "Screen capture timed out", "window_name": "Unknown"}
+        return {"ocr_text": "Screen capture timed out", "window_name": "Unknown", "image": ""}
     finally:
         pending_captures.pop(capture_id, None)
 
@@ -413,10 +416,13 @@ import re as _re
 # Patterns that indicate the user wants Sylph to look at / read their screen.
 # Kept as module-level compiled regexes for speed.
 _SCREEN_QUERY_PATTERNS = [
-    _re.compile(r"\b(see|read|look\s+at|check|describe|what('s|\s+is)\s+on)\b.{0,15}\b(my\s+)?(screen|monitor|display|browser|window)\b", _re.I),
-    _re.compile(r"\b(screen|monitor|display|browser|window)\b.{0,15}\b(see|read|showing|show)\b", _re.I),
-    _re.compile(r"\bwhat\s+(do\s+you|can\s+you)\s+see\b", _re.I),
-    _re.compile(r"\bcan\s+you\s+see\b.{0,10}\b(screen|this|it)\b", _re.I),
+    _re.compile(r"\b(see|read|look\s+at|check|describe|what('s|\s+is)\s+on)\b.{0,20}\b(my\s+)?(screen|monitor|display|browser|window|tab|page|desktop)\b", _re.I),
+    _re.compile(r"\b(screen|monitor|display|browser|window|tab|page|desktop)\b.{0,20}\b(see|read|showing|show|says?|display)\b", _re.I),
+    _re.compile(r"\bwhat\s+(do|can)\s+you\s+see\b", _re.I),
+    _re.compile(r"\bcan\s+you\s+see\b.{0,15}\b(screen|this|it|that|here)\b", _re.I),
+    _re.compile(r"\b(look|glance)\s+(at\s+)?(this|here|my\s+screen|the\s+screen)\b", _re.I),
+    _re.compile(r"\bwhat('s|\s+is)?\s+(this|that|it|going\s+on\s+here)\b", _re.I),
+    _re.compile(r"\b(read|check)\s+(this|that|it|for\s+me)\b", _re.I),
 ]
 
 
@@ -812,26 +818,28 @@ async def run_stt_planner_pipeline(ws: WebSocket, utterance: np.ndarray) -> None
                 assistant_state = "thinking"
                 await manager.send_json(ws, "thinking", {"text": full_text})
 
-                # Auto-capture: if the user is asking about their screen,
-                # grab a fresh screenshot and inject the OCR text into the
-                # LLM's system prompt so it has REAL data to answer with
-                # instead of hallucinating.
+                # Auto-capture: if the user is asking about their screen, grab a
+                # fresh screenshot and hand the ACTUAL IMAGE to the multimodal
+                # model (qwen3.5:4b sees pixels — icons, layout, graphics), with
+                # OCR text as an extra hint. This is what lets Sylph truly see.
                 screen_context = ""
+                screen_image = None
                 if _is_screen_query(full_text):
                     logger.info("Auto-capture: user asked about screen — capturing now")
                     try:
                         cap = await asyncio.shield(capture_screen_on_demand())
                         ocr = cap.get("ocr_text", "")
                         win = cap.get("window_name", "")
+                        screen_image = cap.get("image") or None
                         if ocr:
                             screen_context = f"Active Window: {win}\nScreen OCR Text:\n{ocr}"
-                            logger.info("Auto-capture: injected %d chars of OCR from '%s'", len(ocr), win[:30])
-                        else:
-                            logger.warning("Auto-capture: OCR returned empty")
+                        logger.info("Auto-capture: image=%s, OCR %d chars from '%s'",
+                                    "yes" if screen_image else "no", len(ocr), win[:30])
                     except Exception as e:
                         logger.warning("Auto-capture failed: %s", e)
 
-                response = await planner.process_user_message(full_text, screen_context=screen_context)
+                response = await planner.process_user_message(
+                    full_text, screen_context=screen_context, image=screen_image)
                 assistant_state = "speaking"
                 short_term.add_message(_current_thread_id, "assistant", response)
                 await manager.send_json(ws, "turn_complete", {
@@ -890,18 +898,21 @@ async def handle_vad_flush(ws: WebSocket) -> None:
 
                     # Auto-capture for screen queries (same as run_stt_planner_pipeline)
                     screen_context = ""
+                    screen_image = None
                     if _is_screen_query(full_text):
                         logger.info("Auto-capture (flush): user asked about screen — capturing now")
                         try:
                             cap = await asyncio.shield(capture_screen_on_demand())
                             ocr = cap.get("ocr_text", "")
                             win = cap.get("window_name", "")
+                            screen_image = cap.get("image") or None
                             if ocr:
                                 screen_context = f"Active Window: {win}\nScreen OCR Text:\n{ocr}"
                         except Exception as e:
                             logger.warning("Auto-capture (flush) failed: %s", e)
 
-                    response = await planner.process_user_message(full_text, screen_context=screen_context)
+                    response = await planner.process_user_message(
+                        full_text, screen_context=screen_context, image=screen_image)
                     assistant_state = "speaking"
                     short_term.add_message(_current_thread_id, "assistant", response)
                     await manager.send_json(ws, "turn_complete", {

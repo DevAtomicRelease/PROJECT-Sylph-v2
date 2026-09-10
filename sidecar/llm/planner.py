@@ -456,11 +456,16 @@ class ConversationPlanner:
         self,
         user_text: str,
         screen_context: str = "",
+        image: Optional[str] = None,
     ) -> str:
         """
         Full pipeline: user message → LLM → tool execution / sentence split → TTS.
+
+        `image` (base64 JPEG) is attached to the FIRST model call so a
+        multimodal brain (qwen3.5:4b) can actually see the screen, not just read
+        OCR text. Sent once — not re-attached on tool-loop iterations.
         """
-        logger.info("Processing user message: '%s'", user_text[:80])
+        logger.info("Processing user message: '%s'%s", user_text[:80], " [+image]" if image else "")
 
         # Step 0: Deterministic intent routing — spatial/avatar commands never
         # touch the LLM. Parsed in <1ms, executed immediately, answered with a
@@ -516,8 +521,12 @@ class ConversationPlanner:
             # Connection retries live inside the client now (the old loop here
             # wrapped lazy generator creation, which can never fail — real
             # network errors surface on first iteration, handled below).
+            # Attach the screenshot only on the first pass so the vision model
+            # sees it once; tool-loop follow-ups are text-only.
+            turn_images = [image] if (image and _tool_iter == 0) else None
             stream = self.ollama.stream_chat_raw(
                 messages, tools=TOOLS,
+                images=turn_images,
                 temperature=sampling["temperature"],
                 top_p=sampling["top_p"],
                 repetition_penalty=sampling["repetition_penalty"],
