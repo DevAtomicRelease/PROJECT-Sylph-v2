@@ -24,6 +24,13 @@ SAMPLE_RATE = 16000
 DEFAULT_MODEL = "distil-large-v3"
 FALLBACK_MODEL = "distil-small.en"
 
+# Anti-hallucination gates. Whisper invents phrases ("Thank you.", "Thanks for
+# watching.") from near-silence; the VAD upstream can still pass quiet noise.
+# Skip clips below a peak-amplitude floor outright, and drop any transcribed
+# segment Whisper itself flags as probably-not-speech.
+MIN_PEAK_AMPLITUDE = 0.02
+NO_SPEECH_PROB_THRESHOLD = 0.6
+
 
 def _init_low_priority_worker():
     """No longer downgrades priority to ensure fast response times."""
@@ -151,6 +158,12 @@ class Transcriber:
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
 
+        # Cheap pre-gate: reject near-silence before paying for a transcribe.
+        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+        if peak < MIN_PEAK_AMPLITUDE:
+            logger.info("STT: audio too quiet (peak=%.4f < %.2f) — treating as silence", peak, MIN_PEAK_AMPLITUDE)
+            return ""
+
         try:
             segments, info = self._model.transcribe(
                 audio,
@@ -161,9 +174,14 @@ class Transcriber:
                 condition_on_previous_text=False,  # prevents slow cross-segment attention
             )
 
-            # Collect all segment texts
+            # Collect segment texts, dropping any Whisper itself thinks is silence.
             text_parts = []
             for segment in segments:
+                nsp = getattr(segment, "no_speech_prob", 0.0)
+                if nsp > NO_SPEECH_PROB_THRESHOLD:
+                    logger.info("STT: dropping likely-silence segment (no_speech_prob=%.2f): '%s'",
+                                nsp, segment.text.strip()[:40])
+                    continue
                 text_parts.append(segment.text.strip())
 
             result = " ".join(text_parts).strip()

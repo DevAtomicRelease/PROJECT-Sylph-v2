@@ -532,6 +532,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Failed to preload Synthesizer: %s", e)
 
+        # --- Embedding model: warm it now so the ~80 MB all-MiniLM ONNX
+        #     download happens at startup, not on the FIRST memory query mid
+        #     conversation (where it blocked retrieval past its 8s timeout and
+        #     flooded the console). Downloads once, then cached. ---
+        try:
+            loop = asyncio.get_running_loop()
+            logger.info("Warming long-term embedding model (one-time download on first run)...")
+            await loop.run_in_executor(None, lambda: long_term._embed_texts(["warmup"]))
+            logger.info("Embedding model ready")
+        except Exception as e:
+            logger.warning("Embedding warmup failed: %s", e)
+
     asyncio.create_task(preload_ml_models())
 
     # Phase 8: Start personality systems

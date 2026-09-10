@@ -249,11 +249,24 @@ export function AvatarCanvas({ vrmUrl, onVRMLoaded, onVisemeSchedulerReady }: Av
       expressionDriverRef.current?.flash({ surprised: 0.25, relaxed: 0.1 }, 0.5, 0.7);
     });
 
-    // Engage user with eye contact when speaking starts + flash a subtle happy/alive expression
+    // Engage user with eye contact when speaking starts + flash an expression
+    // that MATCHES what is being said. The sidecar already infers a per-clause
+    // emotion and sends it in `payload.emotion`; using it (instead of a
+    // hardcoded happy burst) is what makes the face track the conversation
+    // instead of grinning at everything.
+    const EMOTION_FLASH: Record<string, Record<string, number>> = {
+      happy:     { happy: 0.4, relaxed: 0.2 },
+      angry:     { angry: 0.45 },
+      sad:       { sad: 0.45, relaxed: 0.1 },
+      relaxed:   { relaxed: 0.35, happy: 0.1 },
+      surprised: { surprised: 0.5 },
+      neutral:   { relaxed: 0.12 }, // engaged but calm — no smile by default
+    };
     const unsubTTSStart = sidecarSocket.onMessage("tts_start", (payload) => {
       idleControllerRef.current?.setGlanceTarget(0.0, 0.04, 1.2);
-      // Micro-expression: brief happy burst when starting to speak
-      expressionDriverRef.current?.flash({ happy: 0.35, relaxed: 0.2 }, 0.35, 0.55);
+      const emotion = (payload.emotion as string) || "neutral";
+      const flash = EMOTION_FLASH[emotion] ?? EMOTION_FLASH.neutral;
+      expressionDriverRef.current?.flash(flash, 0.4, 0.6);
       // Body gesture cued by the utterance itself (hum/sigh/yawn stage
       // directions get dedicated motion; everything else a subtle lead-in)
       gestureControllerRef.current?.onSpeechStart((payload.text as string) ?? "");
