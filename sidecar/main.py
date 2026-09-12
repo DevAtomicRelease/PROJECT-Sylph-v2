@@ -105,6 +105,11 @@ _global_speed = 1.0
 CONFIRM_TIMEOUT = float(os.environ.get("SYLPH_CONFIRM_TIMEOUT", "30"))
 CAPTURE_TIMEOUT = float(os.environ.get("SYLPH_CAPTURE_TIMEOUT", "10"))
 
+# Phase 1 (agent UI): text-chat turns can request a text-only reply (no voice).
+# handle_chat_request sets this for the duration of a muted turn so the shared
+# TTS path stays silent. Voice turns never touch it, so they always speak.
+_chat_tts_muted = False
+
 # Concurrency & Interruption control
 active_response_task: Optional[asyncio.Task] = None
 _active_task_started_at: float = 0.0  # time.time() when the active task was registered
@@ -246,6 +251,10 @@ async def send_tts_to_clients(text: str, speed: Optional[float] = None) -> None:
                base rate). If None, uses the global settings speed.
     """
     try:
+        # Text-only chat turn: stay silent (still let the caller's text reply flow).
+        if _chat_tts_muted:
+            return
+
         if speed is None:
             speed = _global_speed
 
@@ -1054,13 +1063,20 @@ async def handle_speak_request(ws: WebSocket, payload: dict) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_chat_request(ws: WebSocket, payload: dict) -> None:
-    """Process a text chat message through the full pipeline."""
-    global assistant_state
+    """Process a text chat message through the full pipeline.
+
+    payload.speak (default True): when False, the reply is text-only — the
+    shared TTS path is muted for this turn so the Dashboard's text chat doesn't
+    make the avatar talk.
+    """
+    global assistant_state, _chat_tts_muted
     text = payload.get("text", "")
     if not text or planner is None:
         return
 
+    speak = bool(payload.get("speak", True))
     try:
+        _chat_tts_muted = not speak
         assistant_state = "thinking"
         await manager.send_json(ws, "thinking", {"text": text})
 
@@ -1088,6 +1104,7 @@ async def handle_chat_request(ws: WebSocket, payload: dict) -> None:
         except Exception:
             pass
     finally:
+        _chat_tts_muted = False
         if assistant_state in ("thinking", "speaking"):
             assistant_state = "idle"
 

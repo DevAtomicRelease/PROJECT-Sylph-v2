@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
+import { Dashboard } from "./Dashboard";
 import { sidecarSocket } from "./services/SidecarSocket";
 
 // Forward uncaught frontend errors to the sidecar so they land in sidecar.log
@@ -23,8 +25,19 @@ window.addEventListener("unhandledrejection", (e) => {
   forwardError(`unhandledrejection: ${reason}`);
 });
 
+// This same bundle drives two Tauri windows: the always-on "main" avatar
+// overlay and a normal "dashboard" window (chat + agent controls). Route by
+// the window label so each renders the right root.
+function currentWindowLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return "main";
+  }
+}
+
+const isDashboard = currentWindowLabel() === "dashboard";
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{isDashboard ? <Dashboard /> : <App />}</React.StrictMode>,
 );

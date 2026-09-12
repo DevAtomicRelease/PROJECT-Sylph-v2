@@ -141,11 +141,12 @@ struct RecordingEvent {
 
 fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show_hide = MenuItem::with_id(app, "show_hide", "Show/Hide Sylph", true, None::<&str>)?;
+    let dashboard = MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
     let quiet_mode = MenuItem::with_id(app, "quiet_mode", "Quiet Mode", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Sylph", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&show_hide, &quiet_mode, &settings, &quit])?;
+    let menu = Menu::with_items(app, &[&show_hide, &dashboard, &quiet_mode, &settings, &quit])?;
 
     let _tray = TrayIconBuilder::new()
         .menu(&menu)
@@ -158,6 +159,29 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let _ = window.show();
                         let _ = window.set_focus();
+                    }
+                }
+            }
+            "dashboard" => {
+                // Open (or focus) the normal chat/controls window. Created lazily
+                // so the always-on avatar overlay isn't burdened until asked.
+                if let Some(win) = app.get_webview_window("dashboard") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                } else {
+                    match tauri::WebviewWindowBuilder::new(
+                        app,
+                        "dashboard",
+                        tauri::WebviewUrl::App("index.html".into()),
+                    )
+                    .title("Sylph Dashboard")
+                    .inner_size(920.0, 660.0)
+                    .min_inner_size(420.0, 400.0)
+                    .resizable(true)
+                    .build()
+                    {
+                        Ok(_) => log::info!("[Dashboard] window created"),
+                        Err(e) => log::error!("[Dashboard] failed to create window: {}", e),
                     }
                 }
             }
