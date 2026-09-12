@@ -52,6 +52,19 @@ function App() {
     return () => sidecarSocket.disconnect();
   }, []);
 
+  // Unlock audio playback on the first real user gesture. The webview starts
+  // its AudioContext "suspended"; global push-to-talk isn't a webview gesture,
+  // so without a click/keypress here, voice replies generate but never play.
+  useEffect(() => {
+    const unlock = () => audioPlayer.unlock();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
   // -----------------------------------------------------------------------
   // Phase 7: Sync Quiet Mode to Rust
   // -----------------------------------------------------------------------

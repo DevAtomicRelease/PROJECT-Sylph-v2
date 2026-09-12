@@ -253,6 +253,42 @@ TOOLS = [
             "description": "Capture and analyze the user's current screen contents (OCR text and active window name)",
             "parameters": {}
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_app",
+            "description": "Open or launch an application on the user's computer by name (e.g. 'chrome', 'notepad', 'spotify').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The application name to open"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_app",
+            "description": "Bring an already-open application window to the front by a partial title match (e.g. 'chrome', 'code').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Part of the window title to focus"}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_open_windows",
+            "description": "List the titles of the application windows currently open on the user's screen.",
+            "parameters": {}
+        }
     }
 ]
 
@@ -403,6 +439,9 @@ class ConversationPlanner:
             "search_files": tools.search_files,
             "look_at_screen": self.look_at_screen,
             "move_avatar": self.move_avatar,
+            "open_app": tools.open_app,
+            "focus_app": tools.focus_app,
+            "list_open_windows": tools.list_open_windows,
         }
 
     def set_user_name(self, name: str) -> None:

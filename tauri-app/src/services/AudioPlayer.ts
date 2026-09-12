@@ -41,6 +41,22 @@ export class AudioPlayer {
     return this.ctx;
   }
 
+  /**
+   * Create + resume the AudioContext from within a real user gesture.
+   * Browsers/webviews start the context "suspended" and only a gesture
+   * (pointerdown/keydown) can resume it. Push-to-talk is a GLOBAL OS hotkey and
+   * does NOT count as a webview gesture, so without this a voice turn generates
+   * audio that never plays. Call this from a gesture listener once per session.
+   */
+  unlock(): void {
+    try {
+      const ctx = this.ensureContext();
+      if (ctx.state === "suspended") void ctx.resume();
+    } catch {
+      /* ignore — will retry on next gesture */
+    }
+  }
+
   setVisemeScheduler(scheduler: VisemeScheduler): void {
     this.visemeScheduler = scheduler;
   }

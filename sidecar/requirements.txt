@@ -76,3 +76,8 @@ google-auth-httplib2
 beautifulsoup4
 playwright
 pypdf
+
+# --- System control (Phase 3): open/focus apps, list windows ---
+psutil
+pygetwindow
+AppOpener

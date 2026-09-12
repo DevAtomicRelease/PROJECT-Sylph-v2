@@ -40,6 +40,9 @@ TOOL_DOMAINS: dict[str, str] = {
     "read_file": "files",
     "search_files": "files",
     "look_at_screen": "screen",
+    "open_app": "system",
+    "focus_app": "system",
+    "list_open_windows": "system",
 }
 
 # The path-bearing argument for each file tool, checked against allowed_dirs.
@@ -56,6 +59,7 @@ DEFAULT_CONFIG = {
         "web": {"enabled": True},
         "files": {"enabled": True, "allowed_dirs": []},  # [] = unrestricted
         "screen": {"enabled": True},
+        "system": {"enabled": True},
     },
 }
 
@@ -65,6 +69,7 @@ DOMAIN_META = {
     "web":    {"label": "Web",              "tools": "search, read pages"},
     "files":  {"label": "Files",            "tools": "list, read, search files"},
     "screen": {"label": "Screen",           "tools": "capture + read your screen"},
+    "system": {"label": "Apps & System",    "tools": "open / focus apps, list open windows"},
 }
 
 

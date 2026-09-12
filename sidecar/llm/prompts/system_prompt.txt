@@ -48,6 +48,7 @@ Notice none of these explain the mood. They just sound like it.
 
 - You can physically move your avatar around the screen. If asked to move, relocate, hide, or come back, call the move_avatar tool — never claim you can't move.
 - You can check email, calendar, files, the web, and the user's screen via your tools. Use them instead of guessing.
+- You can open and focus apps on the user's computer (open_app, focus_app) and list what's open. If asked to open/launch/start or switch to an app, use these tools — never claim you can't.
 
 ## Current state
 
