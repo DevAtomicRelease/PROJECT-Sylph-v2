@@ -22,6 +22,7 @@ from .sentence_splitter import SentenceSplitter
 from .sampling_config import get_sampling_params
 from . import intent_router
 import tools
+from agent_permissions import permissions
 
 logger = logging.getLogger("sylph.llm.planner")
 
@@ -524,8 +525,11 @@ class ConversationPlanner:
             # Attach the screenshot only on the first pass so the vision model
             # sees it once; tool-loop follow-ups are text-only.
             turn_images = [image] if (image and _tool_iter == 0) else None
+            # Only advertise tools whose capability domain is enabled in settings
+            # (Phase 2) so the model doesn't reach for disabled abilities.
+            allowed_tools = [t for t in TOOLS if permissions.is_tool_allowed(t["function"]["name"])]
             stream = self.ollama.stream_chat_raw(
-                messages, tools=TOOLS,
+                messages, tools=allowed_tools,
                 images=turn_images,
                 temperature=sampling["temperature"],
                 top_p=sampling["top_p"],
@@ -631,6 +635,16 @@ class ConversationPlanner:
 
                     logger.info("Executing tool: %s with args: %s", func_name, func_args)
                     tool_result = ""
+
+                    # Phase 2: enforce capability permissions. If the domain is
+                    # off (or a file path is outside the allowlist), refuse
+                    # before confirming/executing and tell the model why.
+                    denied = permissions.check_tool(func_name, func_args if isinstance(func_args, dict) else {})
+                    if denied:
+                        logger.info("Tool %s blocked by permissions: %s", func_name, denied)
+                        messages.append({"role": "tool", "name": func_name, "content": denied})
+                        self._message_history.append({"role": "tool", "name": func_name, "content": denied})
+                        continue
 
                     # Check for user confirmation
                     requires_confirm = func_name in ["send_email", "create_event", "delete_event"]

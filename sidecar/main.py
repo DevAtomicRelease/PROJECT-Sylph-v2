@@ -39,6 +39,7 @@ from memory.short_term import ShortTermMemory
 from memory.long_term import LongTermMemory
 from memory.sync_worker import MemorySyncWorker
 from vision.screen_analyzer import ScreenAnalyzer
+from agent_permissions import permissions as agent_perms, DOMAIN_META
 from personality.mood import MoodStateMachine
 from personality.autonomous import AutonomousBehaviour
 from personality.interrupt_gate import InterruptGate
@@ -666,6 +667,20 @@ async def health():
         },
     }
 
+
+
+# --- Agent capability permissions (Phase 2) ---
+
+@app.get("/api/permissions")
+async def get_permissions():
+    """Current capability config + domain metadata for the Controls UI."""
+    return {"config": agent_perms.get(), "meta": DOMAIN_META}
+
+
+@app.post("/api/permissions")
+async def update_permissions(payload: dict):
+    """Persist an updated capability config (from the Dashboard Controls tab)."""
+    return {"config": agent_perms.update(payload)}
 
 
 @app.get("/api/memories/short-term")
