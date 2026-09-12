@@ -289,6 +289,43 @@ TOOLS = [
             "description": "List the titles of the application windows currently open on the user's screen.",
             "parameters": {}
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_reminder",
+            "description": "Set a reminder Sylph will speak when it's due. Use when the user asks to be reminded or wants a recurring routine.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "What to remind the user about"},
+                    "when": {"type": "string", "description": "e.g. 'in 30 minutes', 'at 09:00', 'every 2 hours', 'daily at 5 pm'"}
+                },
+                "required": ["message", "when"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": "List the user's active reminders and their ids.",
+            "parameters": {}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminder",
+            "description": "Cancel a reminder by its id (obtained from list_reminders).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "string", "description": "The reminder id to cancel"}
+                },
+                "required": ["reminder_id"]
+            }
+        }
     }
 ]
 
@@ -442,6 +479,9 @@ class ConversationPlanner:
             "open_app": tools.open_app,
             "focus_app": tools.focus_app,
             "list_open_windows": tools.list_open_windows,
+            "schedule_reminder": tools.schedule_reminder,
+            "list_reminders": tools.list_reminders,
+            "cancel_reminder": tools.cancel_reminder,
         }
 
     def set_user_name(self, name: str) -> None:

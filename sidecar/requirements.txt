@@ -81,3 +81,6 @@ pypdf
 psutil
 pygetwindow
 AppOpener
+
+# --- Reminders / routines (Phase 4) ---
+apscheduler>=3.10

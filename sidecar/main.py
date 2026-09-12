@@ -40,6 +40,7 @@ from memory.long_term import LongTermMemory
 from memory.sync_worker import MemorySyncWorker
 from vision.screen_analyzer import ScreenAnalyzer
 from agent_permissions import permissions as agent_perms, DOMAIN_META
+from scheduler import schedule_manager
 from personality.mood import MoodStateMachine
 from personality.autonomous import AutonomousBehaviour
 from personality.interrupt_gate import InterruptGate
@@ -585,12 +586,28 @@ async def lifespan(app: FastAPI):
     await autonomous.start()
     logger.info("Personality systems initialized (mood + autonomous + gate)")
 
+    # Phase 4: reminders/routines. When one fires, Sylph speaks it and the
+    # frontend is notified.
+    async def _reminder_fire(message: str) -> None:
+        try:
+            await manager.broadcast_json("reminder", {"message": message})
+            await send_tts_to_clients(f"Reminder: {message}")
+        except Exception as e:
+            logger.error("reminder delivery failed: %s", e)
+
+    schedule_manager.set_fire_callback(_reminder_fire)
+    try:
+        await schedule_manager.start()
+    except Exception as e:
+        logger.warning("Scheduler start failed: %s", e)
+
     # STT/TTS models load lazily on first request
     logger.info("Listening on http://127.0.0.1:8420")
 
     yield
 
     # Shutdown
+    await schedule_manager.stop()
     await autonomous.stop()
     await mood_machine.stop()
     if sync_worker:

@@ -43,6 +43,9 @@ TOOL_DOMAINS: dict[str, str] = {
     "open_app": "system",
     "focus_app": "system",
     "list_open_windows": "system",
+    "schedule_reminder": "schedule",
+    "list_reminders": "schedule",
+    "cancel_reminder": "schedule",
 }
 
 # The path-bearing argument for each file tool, checked against allowed_dirs.
@@ -60,6 +63,7 @@ DEFAULT_CONFIG = {
         "files": {"enabled": True, "allowed_dirs": []},  # [] = unrestricted
         "screen": {"enabled": True},
         "system": {"enabled": True},
+        "schedule": {"enabled": True},
     },
 }
 
@@ -70,6 +74,7 @@ DOMAIN_META = {
     "files":  {"label": "Files",            "tools": "list, read, search files"},
     "screen": {"label": "Screen",           "tools": "capture + read your screen"},
     "system": {"label": "Apps & System",    "tools": "open / focus apps, list open windows"},
+    "schedule": {"label": "Reminders",       "tools": "set / list / cancel reminders & routines"},
 }
 
 
