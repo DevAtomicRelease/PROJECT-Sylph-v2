@@ -46,6 +46,14 @@ TOOL_DOMAINS: dict[str, str] = {
     "schedule_reminder": "schedule",
     "list_reminders": "schedule",
     "cancel_reminder": "schedule",
+    "write_code": "code",
+    "read_code": "code",
+    "list_workspace": "code",
+    "run_python": "code",
+    "web_navigate": "web",
+    "web_click": "web",
+    "web_type": "web",
+    "web_page_text": "web",
 }
 
 # The path-bearing argument for each file tool, checked against allowed_dirs.
@@ -64,17 +72,19 @@ DEFAULT_CONFIG = {
         "screen": {"enabled": True},
         "system": {"enabled": True},
         "schedule": {"enabled": True},
+        "code": {"enabled": True},
     },
 }
 
 # Human-facing metadata for the Controls UI (labels + which tools each covers).
 DOMAIN_META = {
     "comms":  {"label": "Email & Calendar", "tools": "read/draft/send mail, calendar"},
-    "web":    {"label": "Web",              "tools": "search, read pages"},
+    "web":    {"label": "Web",              "tools": "search, read pages, browse & click/type"},
     "files":  {"label": "Files",            "tools": "list, read, search files"},
     "screen": {"label": "Screen",           "tools": "capture + read your screen"},
     "system": {"label": "Apps & System",    "tools": "open / focus apps, list open windows"},
     "schedule": {"label": "Reminders",       "tools": "set / list / cancel reminders & routines"},
+    "code":     {"label": "Code",             "tools": "write & run code in a sandboxed workspace"},
 }
 
 

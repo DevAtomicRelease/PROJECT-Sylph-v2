@@ -326,6 +326,102 @@ TOOLS = [
                 "required": ["reminder_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_code",
+            "description": "Write a code or text file into the user's workspace folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "File name, e.g. 'hello.py'"},
+                    "content": {"type": "string", "description": "The file contents"}
+                },
+                "required": ["filename", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": "Run a Python file from the workspace, or an inline code snippet, and return its output. Runs sandboxed in the workspace with a timeout.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Workspace file to run (optional)"},
+                    "code": {"type": "string", "description": "Inline Python code to run (optional)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_code",
+            "description": "Read a file from the user's workspace folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {"filename": {"type": "string"}},
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_workspace",
+            "description": "List files in the user's code workspace folder.",
+            "parameters": {}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_navigate",
+            "description": "Open a URL in a visible browser the agent controls. Use for interactive web tasks (not just reading).",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_click",
+            "description": "Click an element on the current web page by its visible text or button/link name.",
+            "parameters": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_type",
+            "description": "Type text into a field on the current web page (optionally targeting a field by its label/placeholder).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "into": {"type": "string", "description": "Field label or placeholder (optional)"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_page_text",
+            "description": "Read the visible text of the current web page in the controlled browser.",
+            "parameters": {}
+        }
     }
 ]
 
@@ -482,6 +578,14 @@ class ConversationPlanner:
             "schedule_reminder": tools.schedule_reminder,
             "list_reminders": tools.list_reminders,
             "cancel_reminder": tools.cancel_reminder,
+            "write_code": tools.write_code,
+            "read_code": tools.read_code,
+            "list_workspace": tools.list_workspace,
+            "run_python": tools.run_python,
+            "web_navigate": tools.web_navigate,
+            "web_click": tools.web_click,
+            "web_type": tools.web_type,
+            "web_page_text": tools.web_page_text,
         }
 
     def set_user_name(self, name: str) -> None:

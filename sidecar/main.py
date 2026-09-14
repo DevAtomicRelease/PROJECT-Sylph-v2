@@ -607,6 +607,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    try:
+        from tools.web_session import close_web_session
+        await close_web_session()
+    except Exception:
+        pass
     await schedule_manager.stop()
     await autonomous.stop()
     await mood_machine.stop()
